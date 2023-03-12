@@ -9,16 +9,21 @@
 #define P_E     (15)
 #define P_OE    (25)
 
-#define ADJUST_BRIGHTNESS
-#ifdef ADJUST_BRIGHTNESS
+// Initial brigtness for the welcome and "powered by" screens 7..255
+#define INIT_BRIGHTNESS   (255U) 
 
-#define VARISTOR_PIN    (34)
-#define ADC_SCALE     (4095)
-#define PWM_MIN_VALUE   (40)
-#define PWM_MAX_VALUE  (220)
+// Comment for using constant brightness INIT_BRIGHTNESS
+#define ADJUST_BRIGHTNESS
+
+#ifdef ADJUST_BRIGHTNESS
+#define VARISTOR_PIN        (34)
+#define ADC_SCALE         (4095)
+#define PWM_MIN_VALUE       (40)
+#define PWM_MAX_VALUE      (220)
 #endif //ADJUST_BRIGHTNESS
 
-void matrix_init();
+void matrix_init(struct tm initDateTime);
 void matrix_loop_every_second();
+void matrix_sync_dt(struct tm initDateTime);
 
 #endif // __MATRIX_H__

@@ -6,6 +6,8 @@
 
 ErriezDS3231 rtc;
 
+struct tm get_build_tm();
+
 bool rtc_init()
 {
     // Setup DS3231 01101000
@@ -13,42 +15,53 @@ bool rtc_init()
 
     delay(1000);
 
+    bool ok = true;
+
     // Initialize RTC
-    if(!rtc.begin()) {
-        return false;
-    }
+    ok &= rtc.begin();
 
-    rtc.setSquareWave(SquareWave1Hz);
+    // For DEBUG purposes only!
+    // Uncomment if you wish to initialize RTC from build date and time.
+    //const struct tm build_tm = get_build_tm();
+    //ok &= rtc.write(&build_tm);
+
+    // Enable 1Hz SQW
+    ok &= rtc.setSquareWave(SquareWave1Hz);
+
+    return ok;
 }
 
-void printTemperature()
+bool rtc_getDateTime(struct tm *dt)
 {
-    int8_t temperature = 0;
-    uint8_t fraction = 0;
-    
-    // Force temperature conversion
-    // Without this call, it takes 64 seconds before the temperature is updated.
-    if (!rtc.startTemperatureConversion()) {
-        //Serial.println(F("Error: Start temperature conversion failed"));
-    }
-    // Read temperature
-    if (!rtc.getTemperature(&temperature, &fraction)) {
-        //Serial.println(F("Error: Get temperature failed"));
-    }
-    // Print temperature. The output below is for example: 28.25C
-    //   Serial.print(temperature);
-    //   Serial.print(F("."));
-    //   Serial.print(fraction);
-    //   Serial.println(F("C"));
+    return rtc.read(dt);
 }
 
-void printDateTime()
+bool rtc_setDateTime(const struct tm *dt)
 {
-    struct tm dt;
-    if (!rtc.read(&dt)) {
-        //Serial.println(F("RTC time read failed"));
-        return;
-    }
+    return rtc.write(dt);
+}
 
-    //Serial.println(asctime(&dt));  
+bool rtc_getTemperature(int8_t *temperature, uint8_t *fraction)
+{
+    return rtc.getTemperature(temperature, fraction);
+}
+
+struct tm get_build_tm()
+{
+    char s_month[5];
+    int year;
+    struct tm t;
+    static const char month_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    sscanf(__DATE__, "%s %d %d", s_month, &t.tm_mday, &year);
+    sscanf(__TIME__, "%2d %*c %2d %*c %2d", &t.tm_hour, &t.tm_min, &t.tm_sec);
+    // Find where is s_month in month_names. Deduce month value.
+    t.tm_mon = (strstr(month_names, s_month) - month_names) / 3 + 1;    
+    t.tm_year = year - 1900;
+
+    // Add period before build started and flashing is done
+    t.tm_sec += 28;
+
+    // Normalize time
+    mktime(&t);
+    return t;
 }
