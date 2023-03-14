@@ -24,18 +24,20 @@ unsigned long oneSecondLoopDue = 0;
 void main_rtc_init();
 void main_matrix_init();
 
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     
     main_rtc_init();
     main_matrix_init(); 
 }
 
-void loop() {
+void loop()
+{
     unsigned long now = millis();
     if (now > oneSecondLoopDue) {
-        matrix_loop_every_second();
-        oneSecondLoopDue = now + 1000;
+        matrix_100hz_loop();
+        oneSecondLoopDue = now + 10;
     }
 }
 
@@ -80,6 +82,8 @@ void main_rtc_init()
         rtcDateTime.tm_hour,
         rtcDateTime.tm_min,
         rtcDateTime.tm_sec);
+
+    attachInterrupt(RTC_SQW, matrix_1hz_isr_loop, FALLING);
 }
 
 // Matrix init with debug message

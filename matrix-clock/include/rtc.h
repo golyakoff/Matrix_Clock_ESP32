@@ -3,10 +3,11 @@
 
 #include <time.h>
 
-#define I2C_SCL     (26U)
-#define I2C_SDA     (27U)
+#define RTC_SPEED   (400000U)
+#define RTC_SCL     (26U)
+#define RTC_SDA     (27U)
 
-#define I2C_SPEED   (400000U)
+#define RTC_SQW     (35U)
 
 bool rtc_init();
 bool rtc_getDateTime(struct tm *dt);

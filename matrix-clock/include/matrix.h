@@ -23,7 +23,8 @@
 #endif //ADJUST_BRIGHTNESS
 
 void matrix_init(struct tm initDateTime);
-void matrix_loop_every_second();
+void matrix_1hz_isr_loop();
+void matrix_100hz_loop();
 void matrix_sync_dt(struct tm initDateTime);
 
 #endif // __MATRIX_H__

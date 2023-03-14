@@ -11,7 +11,7 @@ struct tm get_build_tm();
 bool rtc_init()
 {
     // Setup DS3231 01101000
-    Wire.begin(I2C_SDA, I2C_SCL, I2C_SPEED);
+    Wire.begin(RTC_SDA, RTC_SCL, RTC_SPEED);
 
     delay(1000);
 

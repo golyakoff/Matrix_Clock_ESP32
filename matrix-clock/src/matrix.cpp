@@ -5,8 +5,8 @@
 #include <TetrisMatrixDraw.h>
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
-hw_timer_t * timer = NULL;
-hw_timer_t * animationTimer = NULL;
+hw_timer_t *timer = NULL;
+hw_timer_t *animationTimer = NULL;
 
 PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D);
 TetrisMatrixDraw tetris(display);
@@ -15,9 +15,6 @@ bool showColon = true;
 volatile bool finishedAnimating = false;
 bool displayIntro = true;
 
-String lastDisplayedTime = "";
-
-struct tm _rtcDateTime;
 struct tm _matrixDateTime;
 
 // If this is set to false, the number will only change if the value behind it changes
@@ -27,6 +24,12 @@ struct tm _matrixDateTime;
 bool forceRefresh = true;
 
 int adc_brightness = INIT_BRIGHTNESS;
+
+// The only need for initialize the first minute rendering.
+bool firstTime = true;
+
+// The buffer of the time "12:34\n"
+char matrix_time_buffer[6];
 
 void handleColonAfterAnimation();
 void IRAM_ATTR display_updater();
@@ -44,7 +47,7 @@ void matrix_init(struct tm initDateTime)
 
 #ifdef ADJUST_BRIGHTNESS
     pinMode(VARISTOR_PIN, INPUT);
-#endif //ADJUST_BRIGHTNESS
+#endif // ADJUST_BRIGHTNESS
 
     // Intialise display library
     display.begin(16); // Generic ESP32 including Huzzah
@@ -56,7 +59,7 @@ void matrix_init(struct tm initDateTime)
     timerAlarmWrite(timer, 2000, true);
     timerAlarmEnable(timer);
     yield();
-    
+
     display.clearDisplay();
     display.setBrightness(adc_brightness);
 
@@ -74,7 +77,7 @@ void matrix_init(struct tm initDateTime)
     // Wait for the animation to finish
     while (!finishedAnimating)
     {
-        delay(10); //waiting for intro to finish
+        delay(10); // waiting for intro to finish
     }
 
     delay(2000);
@@ -83,17 +86,30 @@ void matrix_init(struct tm initDateTime)
     tetris.scale = 2;
 }
 
-void matrix_loop_every_second()
+void IRAM_ATTR matrix_1hz_isr_loop()
 {
-    //println_tm("_matrixDateTime before adding second", &_matrixDateTime);
-    _matrixDateTime.tm_sec += 1;    // add a second
-    mktime(&_matrixDateTime);       // normalize it
-    //println_tm("_matrixDateTime after adding second", &_matrixDateTime);
+    portENTER_CRITICAL_ISR(&timerMux);
+    _matrixDateTime.tm_sec += 1; // add a second
+    showColon = !showColon;      // inverse colon
+    portEXIT_CRITICAL_ISR(&timerMux);
+}
 
-    // We can call this often, but it will only
-    // update when it needs to
-    setMatrixTime();
-    showColon = !showColon;
+void matrix_100hz_loop()
+{
+    // Update if minutes are different only or if it's a first time
+    if (_matrixDateTime.tm_sec >= 60)
+    {
+        adcTick();
+        setMatrixTime();
+    }
+
+    if (firstTime)
+    {
+        adcTick();
+        setMatrixTime();
+        firstTime = false;
+        return;
+    }
 
     // To reduce flicker on the screen we stop clearing the screen
     // when the animation is finished, but we still need the colon to
@@ -102,12 +118,11 @@ void matrix_loop_every_second()
     {
         handleColonAfterAnimation();
     }
-
-    adcTick();
 }
 
 // This method is needed for driving the display
-void IRAM_ATTR display_updater() {
+void IRAM_ATTR display_updater()
+{
     portENTER_CRITICAL_ISR(&timerMux);
     display.display(10);
     portEXIT_CRITICAL_ISR(&timerMux);
@@ -120,16 +135,20 @@ void animationHandler()
 
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
-    if (!finishedAnimating) {
+    if (!finishedAnimating)
+    {
         display.clearDisplay();
-        if (displayIntro) {
+        if (displayIntro)
+        {
             finishedAnimating = tetris.drawText(1, 21);
-        } else {
+        }
+        else
+        {
             finishedAnimating = tetris.drawNumbers(2, 26, showColon);
         }
     }
 
-  portEXIT_CRITICAL_ISR(&timerMux);
+    portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void drawIntro(int x = 0, int y = 0)
@@ -146,33 +165,28 @@ void drawIntro(int x = 0, int y = 0)
     tetris.drawChar("y", x + 47, y, tetris.tetrisGREEN);
 }
 
-void setMatrixTime() {
-    char buffer[6];
-    strftime(buffer, sizeof(buffer), "%H:%M", &_matrixDateTime);
-    String timeString = String(buffer);
-    
+void setMatrixTime()
+{
     // Debug info
-    //Serial.printf("timeString: %s\n", buffer);
-    //Serial.printf("lastDisplayedTime: %s\n", lastDisplayedTime);
-    println_tm("_matrixDateTime", &_matrixDateTime);    
-    //Serial.println(timeString);
+    // Serial.printf("timeString: %s\n", buffer);
+    // Serial.printf("lastDisplayedTime: %s\n", lastDisplayedTime);
+    // println_tm("_matrixDateTime", &_matrixDateTime);
 
-    // Only update Time if its different
-    if (lastDisplayedTime != timeString)
-    {
-        lastDisplayedTime = timeString;
-        tetris.setTime(timeString, forceRefresh);
+    mktime(&_matrixDateTime); // normalize it
+    println_tm("_matrixDateTime", &_matrixDateTime);
 
-        // Must set this to false so animation knows
-        // to start again
-        finishedAnimating = false;
-    }
+    strftime(matrix_time_buffer, sizeof(matrix_time_buffer), "%H:%M", &_matrixDateTime);
+    tetris.setTime(String(matrix_time_buffer), forceRefresh);
+
+    // Must set this to false so animation knows to start again
+    finishedAnimating = false;
 }
 
-void handleColonAfterAnimation() {
+void handleColonAfterAnimation()
+{
     // It will draw the colon every time, but when the colour is black it
     // should look like its clearing it.
-    uint16_t colour =  showColon ? tetris.tetrisWHITE : tetris.tetrisBLACK;
+    uint16_t colour = showColon ? tetris.tetrisWHITE : tetris.tetrisBLACK;
     // The x position that you draw the tetris animation object
     int x = 2;
     // The y position adjusted for where the blocks will fall from
@@ -181,7 +195,8 @@ void handleColonAfterAnimation() {
     tetris.drawColon(x, y, colour);
 }
 
-void adcTick() {
+void adcTick()
+{
 #ifdef ADJUST_BRIGHTNESS
     adc_brightness = map(
         analogRead(VARISTOR_PIN),
@@ -189,12 +204,11 @@ void adcTick() {
         PWM_MIN_VALUE, PWM_MAX_VALUE);
 
     display.setBrightness(adc_brightness);
-#endif //ADJUST_BRIGHTNESS
+#endif // ADJUST_BRIGHTNESS
 }
 
 void matrix_sync_dt(struct tm initDateTime)
 {
-    memcpy(&_rtcDateTime, &initDateTime, sizeof(struct tm));
     memcpy(&_matrixDateTime, &initDateTime, sizeof(struct tm));
 }
 
