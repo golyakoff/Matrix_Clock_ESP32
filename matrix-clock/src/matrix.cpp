@@ -123,15 +123,15 @@ void matrix_100hz_loop()
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
 {
-    portENTER_CRITICAL_ISR(&timerMux);
+    //AGOXXX portENTER_CRITICAL_ISR(&timerMux);
     display.display(10);
-    portEXIT_CRITICAL_ISR(&timerMux);
+    //AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 // This method is for controlling the tetris library draw calls
 void animationHandler()
 {
-    portENTER_CRITICAL_ISR(&timerMux);
+    //AGOXXX portENTER_CRITICAL_ISR(&timerMux);
 
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
@@ -148,7 +148,7 @@ void animationHandler()
         }
     }
 
-    portEXIT_CRITICAL_ISR(&timerMux);
+    //AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void drawIntro(int x = 0, int y = 0)

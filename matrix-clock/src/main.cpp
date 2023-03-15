@@ -16,6 +16,7 @@
 // Project includes
 #include "rtc.h"
 #include "matrix.h"
+#include "ble.h"
 
 struct tm rtcDateTime;
 
@@ -23,13 +24,19 @@ unsigned long oneSecondLoopDue = 0;
 
 void main_rtc_init();
 void main_matrix_init();
+void main_ble_init();
+
+extern struct tm _matrixDateTime;
+struct tm _matrixDateTime_prev;
 
 void setup()
 {
     Serial.begin(115200);
     
     main_rtc_init();
-    main_matrix_init(); 
+    main_ble_init();
+    delay(500);
+    main_matrix_init();
 }
 
 void loop()
@@ -38,6 +45,11 @@ void loop()
     if (now > oneSecondLoopDue) {
         matrix_100hz_loop();
         oneSecondLoopDue = now + 10;
+
+        if (_matrixDateTime.tm_sec != _matrixDateTime_prev.tm_sec)
+        {
+            ble_update_time(&_matrixDateTime);
+        }
     }
 }
 
@@ -91,4 +103,10 @@ void main_matrix_init()
 {
     matrix_init(rtcDateTime);
     Serial.println("matrix_init(): OK");
+}
+
+// BLE init
+void main_ble_init()
+{
+    ble_init();
 }
