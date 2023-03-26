@@ -51,6 +51,7 @@ void matrix_init(struct tm initDateTime)
 
     // Intialise display library
     display.begin(16); // Generic ESP32 including Huzzah
+    display.setColorOrder(COLOR_ORDER);
     display.flushDisplay();
 
     // Setup timer for driving display

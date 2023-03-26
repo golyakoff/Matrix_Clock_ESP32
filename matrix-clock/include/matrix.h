@@ -1,6 +1,8 @@
 #ifndef __MATRIX_H__
 #define __MATRIX_H__
 
+#include "PxMatrix.h"
+
 #define P_LAT   (22)
 #define P_A     (19)
 #define P_B     (23)
@@ -8,6 +10,8 @@
 #define P_D      (5)
 #define P_E     (15)
 #define P_OE    (25)
+
+#define COLOR_ORDER RRBBGG
 
 // Initial brigtness for the welcome and "powered by" screens 7..255
 #define INIT_BRIGHTNESS   (255U) 
