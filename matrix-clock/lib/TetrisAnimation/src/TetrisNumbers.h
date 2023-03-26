@@ -1,3 +1,6 @@
+#ifndef __TETRIS_NUMBERS__H__
+#define __TETRIS_NUMBERS__H__
+
 // *********************************************************************
 // Types and data that describes how numbers are drawed
 // *********************************************************************
@@ -6,7 +9,7 @@
 typedef struct
 {
   int blocktype;  // Number of the block type
-  int color; // Color of the brick
+  int color;      // Color of the brick
   int x_pos;      // x-position (starting from the left number staring point) where the brick should be placed
   int y_stop;     // y-position (1-16, where 16 is the last line of the matrix) where the brick should stop falling
   int num_rot;    // Number of 90-degree (clockwise) rotations a brick is turned from the standard position
@@ -183,6 +186,10 @@ static const fall_instr num_9[SIZE_NUM_9] = {
 
 static const int blocksPerNumber[10] = {SIZE_NUM_0, SIZE_NUM_1, SIZE_NUM_2, SIZE_NUM_3, SIZE_NUM_4, SIZE_NUM_5, SIZE_NUM_6, SIZE_NUM_7, SIZE_NUM_8, SIZE_NUM_9};
 
+// The maximum number of elements among all digits
+// Digit 8 contains 13 blocks that is a constant maximum
+#define SIZE_NUM_MAX_BLOCKS SIZE_NUM_8
+
 // *********************************************************************
 // Helper function that that return the falling instruction for a given number
 // *********************************************************************
@@ -228,3 +235,5 @@ static const fall_instr getFallinstrByNum(int num, int blockindex)
   // implicit return
   return num_9[blockindex];
 }
+
+#endif //__TETRIS_NUMBERS__H__

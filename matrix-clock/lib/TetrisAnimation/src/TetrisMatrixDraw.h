@@ -17,11 +17,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 */
 
 
-#ifndef TetrisMatrixDraw_h
-#define TetrisMatrixDraw_h
+#ifndef __TETRIS_MATRIX_DRAW__H__
+#define __TETRIS_MATRIX_DRAW__H__
 
 #include <Arduino.h>
 #include "Adafruit_GFX.h"
+#include "TetrisNumbers.h"
 
 #define TETRIS_MAX_NUMBERS 9
 
@@ -32,6 +33,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 #ifndef TETRIS_Y_DROP_DEFAULT
 #define TETRIS_Y_DROP_DEFAULT 16
 #endif
+
+// Uncomment if you want to randomize digit blocks' colors on each refresh
+#define TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
 
 // Type that describes the current state of a drawn number
 typedef struct
@@ -78,8 +82,14 @@ class TetrisMatrixDraw
         void intialiseColors();
         void resetNumStates();
         void drawLargerBlock(int x_pos, int y_pos, int scale, uint16_t color);
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+        void randomizeBlockColors();
+#endif
         numstate numstates[TETRIS_MAX_NUMBERS];
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+        uint8_t randomBlockColors[TETRIS_MAX_NUMBERS][SIZE_NUM_MAX_BLOCKS];
+#endif
         int sizeOfValue;
 };
 
-#endif
+#endif //__TETRIS_MATRIX_DRAW__H__

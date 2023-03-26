@@ -24,6 +24,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
 TetrisMatrixDraw::TetrisMatrixDraw(Adafruit_GFX &display)	{
     this->display = &display;
     resetNumStates();
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+    this->randomizeBlockColors();
+#endif
 }
 
 void TetrisMatrixDraw::drawChar(String letter, uint8_t x, uint8_t y, uint16_t color)
@@ -239,6 +242,15 @@ void TetrisMatrixDraw::drawLargerBlock(int x_pos, int y_pos, int scale, uint16_t
     this->display->drawRect(x_pos, y_pos, scale, scale, this->outLineColour);
   }
 }
+
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+void TetrisMatrixDraw::randomizeBlockColors()
+{
+    for (int numpos = 0; numpos < TETRIS_MAX_NUMBERS; numpos++)
+      for(int numblock = 0; numblock < SIZE_NUM_MAX_BLOCKS; numblock++)
+        this->randomBlockColors[numpos][numblock] = (uint8_t)random(8);
+}
+#endif
 
 void TetrisMatrixDraw::drawLargerShape(int scale, int blocktype, uint16_t color, int x_pos, int y_pos, int num_rot)
 {
@@ -465,11 +477,10 @@ void TetrisMatrixDraw::drawLargerShape(int scale, int blocktype, uint16_t color,
 void TetrisMatrixDraw::setNumState(int index, int value, int x_shift)
 {
     if(index < TETRIS_MAX_NUMBERS) {
-      Serial.println(value);
-        this->numstates[index].num_to_draw = value;
-        this->numstates[index].x_shift = x_shift;
-        this->numstates[index].fallindex = 0;
-        this->numstates[index].blockindex = 0;
+      this->numstates[index].num_to_draw = value;
+      this->numstates[index].x_shift = x_shift;
+      this->numstates[index].fallindex = 0;
+      this->numstates[index].blockindex = 0;
     }
 }
 
@@ -620,18 +631,20 @@ bool TetrisMatrixDraw::drawText(int x, int yFinish)
         {
           fall_instr_let fallen_block = getFallinstrByAscii(numstates[numpos].num_to_draw, i);
           if(this->scale <= 1){
-            drawShape(fallen_block.blocktype, 
-                      this->tetrisColors[fallen_block.color], 
-                      x + fallen_block.x_pos + numstates[numpos].x_shift, 
-                      y + fallen_block.y_stop - 1, 
-                      fallen_block.num_rot);
+            drawShape(
+              fallen_block.blocktype, 
+              this->tetrisColors[fallen_block.color], 
+              x + fallen_block.x_pos + numstates[numpos].x_shift, 
+              y + fallen_block.y_stop - 1, 
+              fallen_block.num_rot);
           } else {
-            drawLargerShape(this->scale, 
-                            fallen_block.blocktype, 
-                            this->tetrisColors[fallen_block.color], 
-                            x + (fallen_block.x_pos * this->scale) + numstates[numpos].x_shift, 
-                            y + (fallen_block.y_stop * scaledYOffset) - scaledYOffset, 
-                            fallen_block.num_rot);
+            drawLargerShape(
+              this->scale, 
+              fallen_block.blocktype, 
+              this->tetrisColors[fallen_block.color], 
+              x + (fallen_block.x_pos * this->scale) + numstates[numpos].x_shift, 
+              y + (fallen_block.y_stop * scaledYOffset) - scaledYOffset, 
+              fallen_block.num_rot);
           }
           //drawShape(fallen_block.blocktype, this->tetrisColors[fallen_block.color], x + fallen_block.x_pos + numstates[numpos].x_shift, y + fallen_block.y_stop - 1, fallen_block.num_rot);
         }
@@ -698,18 +711,28 @@ bool TetrisMatrixDraw::drawNumbers(int x, int yFinish, bool displayColon)
         }
 
         if(this->scale <= 1){
-          drawShape(current_fall.blocktype, 
-                    this->tetrisColors[current_fall.color],
-                    x + current_fall.x_pos + numstates[numpos].x_shift, 
-                    y + numstates[numpos].fallindex - scaledYOffset, 
-                    rotations);
+          drawShape(
+            current_fall.blocktype, 
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+            this->tetrisColors[randomBlockColors[numpos][numstates[numpos].blockindex]],
+#else
+            this->tetrisColors[current_fall.color],
+#endif
+            x + current_fall.x_pos + numstates[numpos].x_shift,
+            y + numstates[numpos].fallindex - scaledYOffset,
+            rotations);
         } else {
-          drawLargerShape(this->scale, 
-                          current_fall.blocktype, 
-                          this->tetrisColors[current_fall.color], 
-                          x + (current_fall.x_pos * this->scale) + numstates[numpos].x_shift, 
-                          y + (numstates[numpos].fallindex * scaledYOffset) - scaledYOffset, 
-                          rotations);
+          drawLargerShape(
+            this->scale, 
+            current_fall.blocktype, 
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+            this->tetrisColors[randomBlockColors[numpos][numstates[numpos].blockindex]],
+#else
+            this->tetrisColors[current_fall.color],
+#endif
+            x + (current_fall.x_pos * this->scale) + numstates[numpos].x_shift, 
+            y + (numstates[numpos].fallindex * scaledYOffset) - scaledYOffset, 
+            rotations);
         }
         numstates[numpos].fallindex++;
 
@@ -727,18 +750,28 @@ bool TetrisMatrixDraw::drawNumbers(int x, int yFinish, bool displayColon)
         {
           fall_instr fallen_block = getFallinstrByNum(numstates[numpos].num_to_draw, i);
           if(this->scale <= 1){
-            drawShape(fallen_block.blocktype, 
-                      this->tetrisColors[fallen_block.color], 
-                      x + fallen_block.x_pos + numstates[numpos].x_shift, 
-                      y + fallen_block.y_stop - 1, 
-                      fallen_block.num_rot);
+            drawShape(
+              fallen_block.blocktype, 
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+              this->tetrisColors[randomBlockColors[numpos][i]],
+#else
+              this->tetrisColors[fallen_block.color],
+#endif
+              x + fallen_block.x_pos + numstates[numpos].x_shift, 
+              y + fallen_block.y_stop - 1, 
+              fallen_block.num_rot);
           } else {
-            drawLargerShape(this->scale, 
-                            fallen_block.blocktype, 
-                            this->tetrisColors[fallen_block.color], 
-                            x + (fallen_block.x_pos * this->scale) + numstates[numpos].x_shift, 
-                            y + (fallen_block.y_stop * scaledYOffset) - scaledYOffset, 
-                            fallen_block.num_rot);
+            drawLargerShape(
+              this->scale, 
+              fallen_block.blocktype, 
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+              this->tetrisColors[randomBlockColors[numpos][i]],
+#else
+              this->tetrisColors[fallen_block.color],
+#endif
+              x + (fallen_block.x_pos * this->scale) + numstates[numpos].x_shift, 
+              y + (fallen_block.y_stop * scaledYOffset) - scaledYOffset, 
+              fallen_block.num_rot);
           }
         }
       }
@@ -749,6 +782,11 @@ bool TetrisMatrixDraw::drawNumbers(int x, int yFinish, bool displayColon)
   {
     this->drawColon(x, y, this->tetrisWHITE);
   }
+
+#ifdef TETRIS_RANDOMIZE_NUMBER_BLOCK_COLORS
+  if (finishedAnimating)
+    this->randomizeBlockColors();
+#endif
 
   return finishedAnimating;
 }
