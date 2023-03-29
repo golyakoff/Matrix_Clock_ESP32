@@ -29,6 +29,9 @@ void main_ble_init();
 extern struct tm _matrixDateTime;
 struct tm _matrixDateTime_prev;
 
+extern ble_updat_time_t ble_update_time;
+void update_rtc_time_from_ble(const struct tm *dt);
+
 void setup()
 {
     Serial.begin(115200);
@@ -48,7 +51,7 @@ void loop()
 
         if (_matrixDateTime.tm_sec != _matrixDateTime_prev.tm_sec)
         {
-            ble_on_update_time_callback(&_matrixDateTime);
+            ble_update_rtc_time_cb(&_matrixDateTime);
         }
     }
 }
@@ -109,4 +112,34 @@ void main_matrix_init()
 void main_ble_init()
 {
     ble_init();
+    ble_update_time = &update_rtc_time_from_ble;
+}
+
+void update_rtc_time_from_ble(const struct tm *dt)
+{
+    memcpy(&_matrixDateTime, dt, sizeof(struct tm));
+    Serial.printf(
+        "-> Runtime date and time update with the value %d-%02d-%02d %02d:%02d:%02d\n",
+        dt->tm_year + 1900,
+        dt->tm_mon,
+        dt->tm_mday,
+        dt->tm_hour,
+        dt->tm_min,
+        dt->tm_sec);
+     
+    /*
+    Serial.printf(
+        "rtc_setDateTime(%d-%02d-%02d %02d:%02d:%02d)... ",
+        dt->tm_year,
+        dt->tm_mon,
+        dt->tm_mday,
+        dt->tm_hour,
+        dt->tm_min,
+        dt->tm_sec);
+    
+    if (rtc_setDateTime(dt))
+        Serial.println("OK");
+    else
+        Serial.println("Failed");    
+    */    
 }
