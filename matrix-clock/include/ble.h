@@ -6,59 +6,28 @@
 //BLE server name
 #define BLE_SERVER_NAME                     "Tetris Clock A1"
 
-#define DT_SERVICE_UUID                     "00001847-0000-1000-8000-00805F9B34FB"  // 0x1847
+// The only service
+#define MC_SERVICE_UUID                     "5DE498A1-E7A6-4F4A-B323-913741895AD0" // Matrix Clock Service
 
-#define DEVICE_TIME_FEATURE_CHAR_UUID       "00002B8E-0000-1000-8000-00805F9B34FB"  // 0x2B8E M Read
-#define DEVICE_TIME_PARAMETERS_CHAR_UUID    "00002B8F-0000-1000-8000-00805F9B34FB"  // 0x2B8F M Read
-#define DEVICE_TIME_CHAR_UUID               "00002B90-0000-1000-8000-00805F9B34FB"  // 0x2B90 M Read, Indicate
-#define DEVICE_TIME_CONTROL_POINT_CHAR_UUID "00002B91-0000-1000-8000-00805F9B34FB"  // 0x2B91 M Write, Indicate
+// MatrixClock time in UINT32 format: number of seconds since 1900 year.
+// Time is in local time zone (not UTC, no time zone specificed).
+#define MC_TIME_CHAR_UUID                   "D5BD8D18-BD9A-4EF4-B206-8C78FFBE2774" // M Read, Write, Notify
 
-// 0x2B92 Mandatory if the Time Change Logging feature is supported, otherwise Excluded Notify
-// #define TIME_CHANGE_LOG_DATA_CHAR_UUID      "00002B92-0000-1000-8000-00805F9B34FB"
+// MatrixClock time in formatted string "YYYY.MM.DD HH:mm:ss", example: "2023.12.31 09:05:42"
+// Time is in local time zone (not UTC, no time zone specificed).
+#define MC_TIME_STR_CHAR_UUID               "AA063B0F-DB36-47D0-8F19-A70FA97D86DF" // O Read, Notify
 
-typedef enum
-{
-    // 0 : E2E-CRC. E2E_CRC field implemented in each characteristic within the service. O.
-    DTF_E2E_CRC                     = 1 <<  0,
-    // 1 : Time Change Logging. Time change logging is implemented to capture and preserve details of time change events O.
-    DTF_TIME_CHANGE_LOGGING         = 1 <<  1,
-    // 2 : Base Time Second-Fractions. Time values include Base Time fractions of a second
-    //     (16-bit fractions of a second; 1/65,536 Second). O.
-    DTF_BASE_SECOND_FRACTIONS       = 1 <<  2,
-    // 3 : Time or Date Displayed to User. The device displays either time or date values or both. O.
-    DTF_TIME_OR_DATE_DISPLAY        = 1 <<  3,
-    // 4 : Displayed Formats. Formatting of the device’s displayed date and time is revealed using the DT Parameters characteristic. C1.
-    DTF_DISPLAYED_FORMATS           = 1 <<  4,
-    // 5 : Displayed Formats Changeable. The device can change the format of the displayed date or time and the Server 
-    //     can indicate these format changes. C2.
-    DTF_DISPLAYED_FORMAT_CHANGEABLE = 1 <<  5,
-    // 6 : Separate User Timeline. The device supports allowing a user to set the time or date of the device (“User-facing Time”),
-    //     creating a separate timeline from the synchronized Base Time. O.
-    DTF_SEPARATE_USER_TIMELINE      = 1 <<  6,
-    // 7 : Authorization Required. Authorization required to complete certain DTCP procedures. O.
-    DTF_AUTHORIZATION_REQUIRED      = 1 <<  7,
-    // 8 : RTC Drift Tracking. The Server supports monitoring RTC drift after being synchronized to a time source. O.
-    DTF_RTC_DRIFT_TRACKING          = 1 <<  8,
-    // 9 : Epoch Year 1900. The Server supports reporting and receiving Time Update procedures where the Base Time is based on Epoch 1900. C3.
-    DTF_EPOCH_YEAR_1900             = 1 <<  9,
-    // A : Epoch Year 2000. The Server supports reporting and receiving Time Update procedures where the Base Time is based on Epoch 2000. C3.
-    DTF_EPOCH_YEAR_2000             = 1 << 10,
-    // B : Propose Non-Logged Time Adjustment Limit. The Server supports changes to the DT Parameters field Non_Logged_Time_Adjustment_Limit using the DTCP. O.
-    DTF_NON_LOGGED_TIME_ADJ_LIMIT   = 1 << 11,
-    // C : Retrieve Active Time Adjustments. The Server supports the retrieval of either non-logged 
-    //     Base_Time adjustments or consolidated Base_Time adjustments or both by using the DTCP to resolve a
-    //     Base_Time value discrepancy. O.
-    DTF_RETRIVE_ACT_TIME_ADJ        = 1 << 12
-    // D-F: Reserved for Future Use.
-} dtf_t;
+// Alarm timers to turn off/on the displaying of the time (to night, for example)
+// This alaram event has the higher priority than the manual control.
+#define MC_TURN_OFF_ALARM_CHAR_UUID         "84915734-BF86-46E7-B394-22E25B3F9007" // M Read, Write
+#define MC_TURN_ON_ALARM_CHAR_UUID          "6BDBD293-B623-411C-BB2A-F429EAF93CF1" // M Read, Write
 
-struct dtp_t {
-    uint16_t rtc_resolution;
-    uint16_t dt_format;
-};
+// Manual control point to turn off/on the displaying of the time
+// This manual operation has the lower priority than the alarm.
+#define MC_TURN_ON_CONTROL_CHAR_UUID        "2E126C52-37B8-4A7D-9688-28E33104C0E1" // M Read, Write, Notify
 
 void ble_init();
-void ble_update_time(struct tm *dt);
+void ble_on_update_time_callback(struct tm *dt);
 
 #endif // __BLE_H__
 

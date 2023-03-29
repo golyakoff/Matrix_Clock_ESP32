@@ -48,7 +48,7 @@ void loop()
 
         if (_matrixDateTime.tm_sec != _matrixDateTime_prev.tm_sec)
         {
-            ble_update_time(&_matrixDateTime);
+            ble_on_update_time_callback(&_matrixDateTime);
         }
     }
 }
