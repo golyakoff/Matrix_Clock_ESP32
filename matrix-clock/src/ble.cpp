@@ -24,9 +24,13 @@ BLEDescriptor _mctsDescriptor(BLEUUID((uint16_t)0x2903));
 BLEDescriptor _mctncDescriptor(BLEUUID((uint16_t)0x2903));
 
 // Variables
+bool _deviceConnected = false;
 struct tm _lastUpdatedDateTime;
-char _dtValue[20];
+char _mctsCharBuffer[20];
 std::string _mctsCharValue;
+
+bool dtAreDifferent(struct tm *dt1, struct tm *dt2);
+void startAdvertising(BLEServer* pServer);
 
 class MyServerCallbacks: public BLEServerCallbacks
 {
@@ -41,12 +45,9 @@ class MyServerCallbacks: public BLEServerCallbacks
         _deviceConnected = false;
         Serial.println("BLE device disconnected");
 
-        startAdvertising();
+        startAdvertising(pServer);
     }
 };
-
-bool dtAreDifferent(struct tm *dt1, struct tm *dt2);
-void startAdvertising();
 
 void ble_init()
 {
@@ -107,7 +108,7 @@ void ble_init()
     Serial.println("OK");
 
     // Start advertising
-    startAdvertising();
+    startAdvertising(pServer);
 }
 
 void ble_on_update_time_callback(struct tm *dt)
@@ -116,7 +117,7 @@ void ble_on_update_time_callback(struct tm *dt)
         memcpy(&_lastUpdatedDateTime, dt, sizeof(struct tm));
 
         sprintf(
-            _dtValue,
+            _mctsCharBuffer,
             "%d-%02d-%02d %02d:%02d:%02d",
             1900 + dt->tm_year,
             dt->tm_mon,
@@ -125,7 +126,7 @@ void ble_on_update_time_callback(struct tm *dt)
             dt->tm_min,
             dt->tm_sec);
         
-        _mctsCharValue.assign(_dtValue, sizeof(_dtValue));
+        _mctsCharValue.assign(_mctsCharBuffer, sizeof(_mctsCharBuffer));
         _mctChar.setValue(_mctsCharValue);
         _mctChar.notify();
     }
@@ -141,7 +142,7 @@ bool dtAreDifferent(struct tm *dt1, struct tm *dt2)
         || dt1->tm_year != dt2->tm_year;
 }
 
-void startAdvertising()
+void startAdvertising(BLEServer* pServer)
 {
     Serial.print("Start advertising... ");
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
