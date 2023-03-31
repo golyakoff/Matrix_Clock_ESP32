@@ -1,8 +1,8 @@
-#include "rtc.h"
-
 #include <stdint.h>
 #include <Wire.h>
 #include <ErriezDS3231.h>
+
+#include "rtc.h"
 
 ErriezDS3231 rtc;
 
@@ -31,17 +31,17 @@ bool rtc_init()
     return ok;
 }
 
-bool rtc_getDateTime(struct tm *dt)
+bool rtc_get_time(struct tm *dt_out)
 {
-    return rtc.read(dt);
+    return rtc.read(dt_out);
 }
 
-bool rtc_setDateTime(const struct tm *dt)
+bool rtc_set_time(const struct tm *dt_new)
 {
-    return rtc.write(dt);
+    return rtc.write(dt_new);
 }
 
-bool rtc_getTemperature(int8_t *temperature, uint8_t *fraction)
+bool rtc_get_temperature(int8_t *temperature, uint8_t *fraction)
 {
     return rtc.getTemperature(temperature, fraction);
 }

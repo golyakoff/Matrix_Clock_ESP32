@@ -28,7 +28,7 @@
 
 typedef void (*ble_updat_time_t)(const struct tm *dt);
 
-void ble_init();
+void ble_init(ble_updat_time_t ble_update_time_cb);
 void ble_update_rtc_time_cb(struct tm *dt);
 
 #endif // __BLE_H__

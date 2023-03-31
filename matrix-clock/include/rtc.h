@@ -10,8 +10,8 @@
 #define RTC_SQW     (35U)
 
 bool rtc_init();
-bool rtc_getDateTime(struct tm *dt);
-bool rtc_setDateTime(const struct tm *dt);
-bool rtc_getTemperature(int8_t *temperature, uint8_t *fraction);
+bool rtc_get_time(struct tm *dt_out);
+bool rtc_set_time(const struct tm *dt_new);
+bool rtc_get_temperature(int8_t *temperature, uint8_t *fraction);
 
 #endif // __RTC_H__

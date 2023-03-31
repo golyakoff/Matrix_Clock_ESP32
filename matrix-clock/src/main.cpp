@@ -14,22 +14,20 @@
 #include <ErriezDS3231.h>
 
 // Project includes
+#include "time_helper.h"
 #include "rtc.h"
 #include "matrix.h"
 #include "ble.h"
 
-struct tm rtcDateTime;
+static unsigned long _10ms_loop_due = 0;
 
-unsigned long oneSecondLoopDue = 0;
+static struct tm _rtc_dt;
+static struct tm _matrix_dt;
+static struct tm _matrix_dt_prev;
 
 void main_rtc_init();
 void main_matrix_init();
 void main_ble_init();
-
-extern struct tm _matrixDateTime;
-struct tm _matrixDateTime_prev;
-
-extern ble_updat_time_t ble_update_time;
 void update_rtc_time_from_ble(const struct tm *dt);
 
 void setup()
@@ -45,13 +43,16 @@ void setup()
 void loop()
 {
     unsigned long now = millis();
-    if (now > oneSecondLoopDue) {
+    if (now > _10ms_loop_due) {
         matrix_100hz_loop();
-        oneSecondLoopDue = now + 10;
+        _10ms_loop_due = now + 10;
 
-        if (_matrixDateTime.tm_sec != _matrixDateTime_prev.tm_sec)
+        matrix_get_time(&_matrix_dt);
+        if (times_are_different(&_matrix_dt, &_matrix_dt_prev))
         {
-            ble_update_rtc_time_cb(&_matrixDateTime);
+            ble_update_rtc_time_cb(&_matrix_dt);
+            memcpy(&_matrix_dt_prev, &_matrix_dt, sizeof(struct tm));
+            println_tm("_matrix_dt: ", &_matrix_dt);
         }
     }
 }
@@ -62,41 +63,42 @@ void main_rtc_init()
     if (!rtc_init())
     {
         for(;;) {
-            Serial.println("Error: rtc_init(). RTC was not initialized!");
+            Serial.println(F("Error: rtc_init(). RTC was not initialized!"));
             delay(5000);
         }
     }    
-    Serial.println("rtc_init(): OK");
+    Serial.println(F("rtc_init(): OK"));
     
     // Write out RTC chip temperature
     int8_t rtc_t;
     uint8_t rtc_f;
-    if (!rtc_getTemperature(&rtc_t, &rtc_f))
+    if (!rtc_get_temperature(&rtc_t, &rtc_f))
     {
         for(;;) {
-            Serial.println("Error: rtc_getTemperature(). Cannot read temperature from RTC!");
+            Serial.println(F("Error: rtc_get_temperature(). Cannot read temperature from RTC!"));
             delay(5000);
         }
     }
-    Serial.printf("rtc_getTemperature(): OK : %d.%d\n", rtc_t, rtc_f);
+    Serial.printf("rtc_get_temperature(): OK : %d.%d\n", rtc_t, rtc_f);
 
     // Write out RTC date and time
-    if (!rtc_getDateTime(&rtcDateTime))
+    if (!rtc_get_time(&_rtc_dt))
     {
         for(;;) {
-            Serial.println("Error: rtc_getDateTime(). Cannot read time from RTC!");
+            Serial.println(F("Error: rtc_get_time(). Cannot read time from RTC!"));
             delay(5000);
         }
     }
+    println_tm("_matrix_dt: ", &_rtc_dt);
     Serial.printf(
         "%s: %d-%02d-%02d %02d:%02d:%02d\n",
-        "rtc_getDateTime(): OK ",
-        rtcDateTime.tm_year,
-        rtcDateTime.tm_mon,
-        rtcDateTime.tm_mday,
-        rtcDateTime.tm_hour,
-        rtcDateTime.tm_min,
-        rtcDateTime.tm_sec);
+        F("rtc_get_time(): OK "),
+        _rtc_dt.tm_year + 1900,
+        _rtc_dt.tm_mon,
+        _rtc_dt.tm_mday,
+        _rtc_dt.tm_hour,
+        _rtc_dt.tm_min,
+        _rtc_dt.tm_sec);
 
     attachInterrupt(RTC_SQW, matrix_1hz_isr_loop, FALLING);
 }
@@ -104,42 +106,28 @@ void main_rtc_init()
 // Matrix init with debug message
 void main_matrix_init()
 {
-    matrix_init(rtcDateTime);
-    Serial.println("matrix_init(): OK");
+    matrix_init(&_rtc_dt);
+    Serial.println(F("matrix_init(): OK"));
 }
 
 // BLE init
 void main_ble_init()
 {
-    ble_init();
-    ble_update_time = &update_rtc_time_from_ble;
+    ble_init(&update_rtc_time_from_ble);
 }
 
 void update_rtc_time_from_ble(const struct tm *dt)
 {
-    memcpy(&_matrixDateTime, dt, sizeof(struct tm));
-    Serial.printf(
-        "-> Runtime date and time update with the value %d-%02d-%02d %02d:%02d:%02d\n",
-        dt->tm_year + 1900,
-        dt->tm_mon,
-        dt->tm_mday,
-        dt->tm_hour,
-        dt->tm_min,
-        dt->tm_sec);
-     
+    // update rtc
     /*
-    Serial.printf(
-        "rtc_setDateTime(%d-%02d-%02d %02d:%02d:%02d)... ",
-        dt->tm_year,
-        dt->tm_mon,
-        dt->tm_mday,
-        dt->tm_hour,
-        dt->tm_min,
-        dt->tm_sec);
-    
-    if (rtc_setDateTime(dt))
+    if (rtc_set_time(dt))
         Serial.println("OK");
     else
         Serial.println("Failed");    
-    */    
+    */
+
+    // update matrix
+    matrix_update_dt(dt, true);
+
+    println_tm("-> Runtime date and time updated with the value", dt);
 }

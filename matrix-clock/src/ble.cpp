@@ -5,48 +5,48 @@
 #include <BLE2902.h>
 #include <string.h>
 
+#include "time_helper.h"
 #include "ble.h"
 
 // BLE Transmission Type: LSO: Least Significant Octet First
 
 // Declare and init BLE characteristics
-BLECharacteristic _mctChar(MC_TIME_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
-BLECharacteristic _mctsChar(MC_TIME_STR_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+static BLECharacteristic _mct_char(MC_TIME_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+static BLECharacteristic _mcts_char(MC_TIME_STR_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
 
-BLECharacteristic _mctfaChar(MC_TURN_OFF_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-BLECharacteristic _mctnaChar(MC_TURN_ON_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mctfa_char(MC_TURN_OFF_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mctna_char(MC_TURN_ON_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
-BLECharacteristic _mctncChar(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
 
 // Variables
-bool _deviceConnected = false;
+static bool _device_connected = false;
 
-struct tm _lastUpdatedDateTime;
+static struct tm _last_update_dt;
 
-char _mctsCharBuffer[20];       // string time buffer for covertion
-std::string _mctsCharValue;     // string time
-uint32_t _mctCharValue;         // epoch time
+static char _mcts_char_buffer[20];       // string time buffer for covertion
+static std::string _mcts_char_value;     // string time
+static uint32_t _mct_char_value;         // epoch time
 
-bool dtAreDifferent(struct tm *dt1, struct tm *dt2);
-void startAdvertising(BLEServer* pServer);
+void start_advertising(BLEServer* pServer);
 
-ble_updat_time_t ble_update_time = nullptr;
+static ble_updat_time_t _update_time_cb = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public BLEServerCallbacks
 {
     void onConnect(BLEServer* pServer)
     {
-        _deviceConnected = true;
-        Serial.println("BLE device connected");
+        _device_connected = true;
+        Serial.println(F("BLE device connected"));
     }
     
     void onDisconnect(BLEServer* pServer)
     {
-        _deviceConnected = false;
-        Serial.println("BLE device disconnected");
+        _device_connected = false;
+        Serial.println(F("BLE device disconnected"));
 
-        startAdvertising(pServer);
+        start_advertising(pServer);
     }
 };
 MyServerCallbacks _myServerCallbacks;
@@ -54,12 +54,12 @@ MyServerCallbacks _myServerCallbacks;
 // BLE Characteristic Callbacks class
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
-        if(pCharacteristic->getUUID().equals(_mctChar.getUUID()) && param->write.len == 4)
+        if(pCharacteristic->getUUID().equals(_mct_char.getUUID()) && param->write.len == 4)
         {
-            _mctCharValue = param->write.value[0];
-            _mctCharValue |= param->write.value[1] << 8;
-            _mctCharValue |= param->write.value[2] << 16;
-            _mctCharValue |= param->write.value[3] << 24;
+            _mct_char_value = param->write.value[0];
+            _mct_char_value |= param->write.value[1] << 8;
+            _mct_char_value |= param->write.value[2] << 16;
+            _mct_char_value |= param->write.value[3] << 24;
             
             Serial.printf(
                 "Write callback for char (%s), raw array (LSO): 0x%02x 0x%02x 0x%02x 0x%02x, uint32_t: 0x%08x (%d)\n",
@@ -68,96 +68,98 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 param->write.value[2],
                 param->write.value[1],
                 param->write.value[0],
-                _mctCharValue,
-                _mctCharValue);
+                _mct_char_value,
+                _mct_char_value);
 
-            if (ble_update_time != nullptr)
+            if (_update_time_cb != nullptr)
             {
-                Serial.println("Calling callback ble_update_time(dt)... ");
-                time_t tim = (time_t)_mctCharValue;
+                Serial.println(F("Calling callback _update_time_cb(dt)... "));
+                time_t tim = (time_t)_mct_char_value;
                 tm *dt = gmtime(&tim);
-                ble_update_time(dt);
-                Serial.println("OK");
+                _update_time_cb(dt);
+                Serial.println(F("OK"));
             }
         }        
     }
 };
 MyCharacteristicCallbacks _myCharacteristicCallbacks;
 
-void ble_init()
+void ble_init(ble_updat_time_t ble_update_time_cb)
 {
+    // init update time callback
+    _update_time_cb = ble_update_time_cb;
+
     // reset last updated date and time
-    memset(&_lastUpdatedDateTime, 0, sizeof(_lastUpdatedDateTime));
+    memset(&_last_update_dt, 0, sizeof(_last_update_dt));
 
     // Create the BLE Device
     Serial.printf("Initialize BLE Device '%s'... ", BLE_SERVER_NAME);
     BLEDevice::init(BLE_SERVER_NAME);
-    Serial.println("OK");
+    Serial.println(F("OK"));
 
     // Create the BLE Server
-    Serial.print("Create BLE Server... ");
+    Serial.print(F("Create BLE Server... "));
     BLEServer *pServer = BLEDevice::createServer();
     pServer->setCallbacks(&_myServerCallbacks);
-    Serial.println("OK");
+    Serial.println(F("OK"));
 
     // Start a BLE service with the service UUID.
-    Serial.print("Create Primary Service... ");
+    Serial.print(F("Create Primary Service... "));
     BLEService *bleService = pServer->createService(MC_SERVICE_UUID);
-    Serial.print("OK: ");
+    Serial.print(F("OK: "));
     Serial.println(bleService->toString().c_str());
 
     // Add MatrixClock Time characteristic
-    Serial.print("Add MatrixClock Time char... ");
-    bleService->addCharacteristic(&_mctChar);
-    _mctChar.addDescriptor(new BLE2902());
-    _mctChar.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print("OK: ");
-    Serial.println(_mctChar.toString().c_str());
+    Serial.print(F("Add MatrixClock Time char... "));
+    bleService->addCharacteristic(&_mct_char);
+    _mct_char.addDescriptor(new BLE2902());
+    _mct_char.setCallbacks(&_myCharacteristicCallbacks);
+    Serial.print(F("OK: "));
+    Serial.println(_mct_char.toString().c_str());
     
     // Add MatrixClock Time String characteristic
-    Serial.print("Add MatrixClock Time String char... ");
-    bleService->addCharacteristic(&_mctsChar);
-    _mctsChar.addDescriptor(new BLE2902());
-    Serial.print("OK: ");
-    Serial.println(_mctsChar.toString().c_str());
+    Serial.print(F("Add MatrixClock Time String char... "));
+    bleService->addCharacteristic(&_mcts_char);
+    _mcts_char.addDescriptor(new BLE2902());
+    Serial.print(F("OK: "));
+    Serial.println(_mcts_char.toString().c_str());
 
     /*
     // Add MatrixClock Turn Off Alarm characteristic
-    Serial.print("Add MatrixClock Turn Off Alarm char... ");
-    bleService->addCharacteristic(&_mctfaChar);
-    Serial.print("OK: ");
-    Serial.println(_mctfaChar.toString().c_str());
+    Serial.print(F("Add MatrixClock Turn Off Alarm char... "));
+    bleService->addCharacteristic(&_mctfa_char);
+    Serial.print(F("OK: "));
+    Serial.println(_mctfa_char.toString().c_str());
 
     // Add MatrixClock Turn On Alarm characteristic
-    Serial.print("Add MatrixClock Turn On Alarm char... ");
-    bleService->addCharacteristic(&_mctnaChar);
-    Serial.print("OK: ");
-    Serial.println(_mctnaChar.toString().c_str());
+    Serial.print(F("Add MatrixClock Turn On Alarm char... "));
+    bleService->addCharacteristic(&_mctna_char);
+    Serial.print(F("OK: "));
+    Serial.println(_mctna_char.toString().c_str());
 
     // Add MatrixClock Turn On/Off Control characteristic
-    Serial.print("Add MatrixClock Turn On/Off Control char... ");
-    bleService->addCharacteristic(&_mctncChar);
-    _mctncChar.addDescriptor(new BLE2902());
-    Serial.print("OK: ");
-    Serial.println(_mctncChar.toString().c_str());
+    Serial.print(F("Add MatrixClock Turn On/Off Control char... "));
+    bleService->addCharacteristic(&_mctnc_char);
+    _mctnc_char.addDescriptor(new BLE2902());
+    Serial.print(F("OK: "));
+    Serial.println(_mctnc_char.toString().c_str());
     */
 
     // Start the service
-    Serial.print("bleService->start()... ");
+    Serial.print(F("bleService->start()... "));
     bleService->start();
-    Serial.println("OK");
+    Serial.println(F("OK"));
 
     // Start advertising
-    startAdvertising(pServer);
+    start_advertising(pServer);
 }
 
 void ble_update_rtc_time_cb(struct tm *dt)
 {
-    if (_deviceConnected && dtAreDifferent(dt, &_lastUpdatedDateTime)) {
-        memcpy(&_lastUpdatedDateTime, dt, sizeof(struct tm));
-
+    if (_device_connected && times_are_different(dt, &_last_update_dt)) {
+        memcpy(&_last_update_dt, dt, sizeof(struct tm));
         sprintf(
-            _mctsCharBuffer,
+            _mcts_char_buffer,
             "%d-%02d-%02d %02d:%02d:%02d",
             1900 + dt->tm_year,
             dt->tm_mon,
@@ -166,31 +168,21 @@ void ble_update_rtc_time_cb(struct tm *dt)
             dt->tm_min,
             dt->tm_sec);
         
-        _mctsCharValue.assign(_mctsCharBuffer, sizeof(_mctsCharBuffer));
-        _mctsChar.setValue(_mctsCharValue);
-        _mctsChar.notify();
+        _mcts_char_value.assign(_mcts_char_buffer, sizeof(_mcts_char_buffer));
+        _mcts_char.setValue(_mcts_char_value);
+        _mcts_char.notify();
 
-        _mctCharValue = (uint32_t)mktime(dt);
-        _mctChar.setValue(_mctCharValue);
-        _mctChar.notify();
+        _mct_char_value = (uint32_t)mktime(dt);
+        _mct_char.setValue(_mct_char_value);
+        _mct_char.notify();
     }
 }
 
-bool dtAreDifferent(struct tm *dt1, struct tm *dt2)
+void start_advertising(BLEServer* pServer)
 {
-    return dt1->tm_sec  != dt2->tm_sec
-        || dt1->tm_min  != dt2->tm_min
-        || dt1->tm_hour != dt2->tm_hour
-        || dt1->tm_mday != dt2->tm_mday
-        || dt1->tm_mon  != dt2->tm_mon
-        || dt1->tm_year != dt2->tm_year;
-}
-
-void startAdvertising(BLEServer* pServer)
-{
-    Serial.print("Start advertising... ");
+    Serial.print(F("Start advertising... "));
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(MC_SERVICE_UUID);
     pServer->getAdvertising()->start();
-    Serial.println("OK");
+    Serial.println(F("OK"));
 }

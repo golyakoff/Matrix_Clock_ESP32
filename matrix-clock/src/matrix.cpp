@@ -1,8 +1,9 @@
-#include "matrix.h"
-
 #include <Arduino.h>
 #include <PxMatrix.h>
 #include <TetrisMatrixDraw.h>
+
+#include "time_helper.h"
+#include "matrix.h"
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 hw_timer_t *timer = NULL;
@@ -11,39 +12,32 @@ hw_timer_t *animationTimer = NULL;
 PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D);
 TetrisMatrixDraw tetris(display);
 
-bool showColon = true;
-volatile bool finishedAnimating = false;
-bool displayIntro = true;
+static int _brightness = INIT_BRIGHTNESS;
+static bool _show_colon = true;
+static volatile bool _finished_animating = false;
 
-struct tm _matrixDateTime;
+static bool _display_intro = true;
+static char _matrix_time_buffer[6]; // The buffer of the string containing time, like "12:34\n"
 
-// If this is set to false, the number will only change if the value behind it changes
-// e.g. the digit representing the least significant minute will be replaced every minute,
-// but the most significant number will only be replaced every 10 minutes.
-// When true, all digits will be replaced every minute.
-bool forceRefresh = true;
+static struct tm _dt;               // time to display on the matrix
+static bool _force_update;          // if "true", there will be performed forced update of the time
 
-int adc_brightness = INIT_BRIGHTNESS;
+#pragma region Private methods declaration
 
-// The only need for initialize the first minute rendering.
-bool firstTime = true;
-
-// The buffer of the time "12:34\n"
-char matrix_time_buffer[6];
-
-void handleColonAfterAnimation();
+void handle_colon_after_animation();
 void IRAM_ATTR display_updater();
-void animationHandler();
-void drawIntro(int x, int y);
-void setMatrixTime();
-void handleColonAfterAnimation();
-void adcTick();
-void matrix_sync_dt(struct tm initDateTime);
-void println_tm(const char *prefix, struct tm *dt);
+void animation_handler();
+void draw_intro(int x, int y);
+void set_matrix_time();
+void adc_read_tick();
 
-void matrix_init(struct tm initDateTime)
+#pragma endregion // Private methods declaration
+
+#pragma region Public methods definition
+
+void matrix_init(struct tm *init_dt)
 {
-    matrix_sync_dt(initDateTime);
+    matrix_update_dt(init_dt, true);
 
 #ifdef ADJUST_BRIGHTNESS
     pinMode(VARISTOR_PIN, INPUT);
@@ -62,64 +56,76 @@ void matrix_init(struct tm initDateTime)
     yield();
 
     display.clearDisplay();
-    display.setBrightness(adc_brightness);
+    display.setBrightness(_brightness);
 
     // "Powered By"
-    drawIntro(6, 12);
+    draw_intro(6, 12);
     delay(2000);
 
     // Start the Animation Timer
     tetris.setText("GOLYAKOFF");
     animationTimer = timerBegin(1, 80, true);
-    timerAttachInterrupt(animationTimer, &animationHandler, true);
+    timerAttachInterrupt(animationTimer, &animation_handler, true);
     timerAlarmWrite(animationTimer, 100000, true);
     timerAlarmEnable(animationTimer);
 
     // Wait for the animation to finish
-    while (!finishedAnimating)
+    while (!_finished_animating)
     {
         delay(10); // waiting for intro to finish
     }
 
     delay(2000);
-    finishedAnimating = false;
-    displayIntro = false;
+    _finished_animating = false;
+    _display_intro = false;
     tetris.scale = 2;
 }
 
 void IRAM_ATTR matrix_1hz_isr_loop()
 {
     portENTER_CRITICAL_ISR(&timerMux);
-    _matrixDateTime.tm_sec += 1; // add a second
-    showColon = !showColon;      // inverse colon
+    _dt.tm_sec += 1; // add a second
+    _show_colon = !_show_colon;      // inverse colon
     portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void matrix_100hz_loop()
 {
-    // Update if minutes are different only or if it's a first time
-    if (_matrixDateTime.tm_sec >= 60)
+    // Update if minutes are different only or if update was forced after the time correction
+    if (_dt.tm_sec >= 60 || _force_update)
     {
-        adcTick();
-        setMatrixTime();
-    }
-
-    if (firstTime)
-    {
-        adcTick();
-        setMatrixTime();
-        firstTime = false;
-        return;
+        adc_read_tick();
+        set_matrix_time();
+        
+        if (_force_update)
+            _force_update = false;
     }
 
     // To reduce flicker on the screen we stop clearing the screen
     // when the animation is finished, but we still need the colon to
     // to blink
-    if (finishedAnimating)
+    if (_finished_animating)
     {
-        handleColonAfterAnimation();
+        handle_colon_after_animation();
     }
 }
+
+void matrix_update_dt(const struct tm *new_dt, bool force_update_display)
+{
+    memcpy(&_dt, new_dt, sizeof(struct tm));
+    
+    if (force_update_display)
+        _force_update = true;
+}
+
+void matrix_get_time(struct tm *dt_out)
+{
+    memcpy(dt_out, &_dt, sizeof(struct tm));
+}
+
+#pragma endregion // Public methods definition
+
+#pragma region Private methods definition
 
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
@@ -130,29 +136,29 @@ void IRAM_ATTR display_updater()
 }
 
 // This method is for controlling the tetris library draw calls
-void animationHandler()
+void animation_handler()
 {
     //AGOXXX portENTER_CRITICAL_ISR(&timerMux);
 
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
-    if (!finishedAnimating)
+    if (!_finished_animating)
     {
         display.clearDisplay();
-        if (displayIntro)
+        if (_display_intro)
         {
-            finishedAnimating = tetris.drawText(1, 21);
+            _finished_animating = tetris.drawText(1, 21);
         }
         else
         {
-            finishedAnimating = tetris.drawNumbers(2, 26, showColon);
+            _finished_animating = tetris.drawNumbers(2, 26, _show_colon);
         }
     }
 
     //AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
-void drawIntro(int x = 0, int y = 0)
+void draw_intro(int x = 0, int y = 0)
 {
     tetris.drawChar("P", x, y, tetris.tetrisCYAN);
     tetris.drawChar("o", x + 5, y, tetris.tetrisMAGENTA);
@@ -166,28 +172,28 @@ void drawIntro(int x = 0, int y = 0)
     tetris.drawChar("y", x + 47, y, tetris.tetrisGREEN);
 }
 
-void setMatrixTime()
+void set_matrix_time()
 {
     // Debug info
     // Serial.printf("timeString: %s\n", buffer);
     // Serial.printf("lastDisplayedTime: %s\n", lastDisplayedTime);
-    // println_tm("_matrixDateTime", &_matrixDateTime);
+    // println_tm("_dt", &_dt);
 
-    mktime(&_matrixDateTime); // normalize it
-    println_tm("_matrixDateTime", &_matrixDateTime);
+    mktime(&_dt); // normalize it
+    println_tm("_dt", &_dt);
 
-    strftime(matrix_time_buffer, sizeof(matrix_time_buffer), "%H:%M", &_matrixDateTime);
-    tetris.setTime(String(matrix_time_buffer), forceRefresh);
+    strftime(_matrix_time_buffer, sizeof(_matrix_time_buffer), "%H:%M", &_dt);
+    tetris.setTime(String(_matrix_time_buffer), FORCE_UPDATE_ALL_DIGITS);
 
     // Must set this to false so animation knows to start again
-    finishedAnimating = false;
+    _finished_animating = false;
 }
 
-void handleColonAfterAnimation()
+void handle_colon_after_animation()
 {
     // It will draw the colon every time, but when the colour is black it
     // should look like its clearing it.
-    uint16_t colour = showColon ? tetris.tetrisWHITE : tetris.tetrisBLACK;
+    uint16_t colour = _show_colon ? tetris.tetrisWHITE : tetris.tetrisBLACK;
     // The x position that you draw the tetris animation object
     int x = 2;
     // The y position adjusted for where the blocks will fall from
@@ -196,32 +202,16 @@ void handleColonAfterAnimation()
     tetris.drawColon(x, y, colour);
 }
 
-void adcTick()
+void adc_read_tick()
 {
 #ifdef ADJUST_BRIGHTNESS
-    adc_brightness = map(
+    _brightness = map(
         analogRead(VARISTOR_PIN),
         0, ADC_SCALE,
         PWM_MIN_VALUE, PWM_MAX_VALUE);
 
-    display.setBrightness(adc_brightness);
+    display.setBrightness(_brightness);
 #endif // ADJUST_BRIGHTNESS
 }
 
-void matrix_sync_dt(struct tm initDateTime)
-{
-    memcpy(&_matrixDateTime, &initDateTime, sizeof(struct tm));
-}
-
-void println_tm(const char *prefix, struct tm *dt)
-{
-    Serial.printf(
-        "%s:\t%d-%02d-%02d %02d:%02d:%02d\n",
-        prefix,
-        dt->tm_year,
-        dt->tm_mon,
-        dt->tm_mday,
-        dt->tm_hour,
-        dt->tm_min,
-        dt->tm_sec);
-}
+#pragma endregion // Private methods definition
