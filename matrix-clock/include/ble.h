@@ -26,9 +26,15 @@
 // This manual operation has the lower priority than the alarm.
 #define MC_TURN_ON_CONTROL_CHAR_UUID        "2E126C52-37B8-4A7D-9688-28E33104C0E1" // M Read, Write, Notify
 
-typedef void (*ble_updat_time_t)(const struct tm *dt);
+typedef void (*ble_set_time_on_ble_write_t)(const struct tm *dt);
 
-void ble_init(ble_updat_time_t ble_update_time_cb);
+typedef void (*ble_set_show_on_ble_write_t)(const bool show);
+typedef bool (*ble_get_show_on_ble_read_t)();
+
+void ble_init(
+    ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
+    ble_set_show_on_ble_write_t ble_set_show_on_ble_write_cb,
+    ble_get_show_on_ble_read_t ble_get_show_on_ble_read_cb);
 void ble_update_rtc_time_cb(struct tm *dt);
 
 #endif // __BLE_H__

@@ -28,7 +28,6 @@ static struct tm _matrix_dt_prev;
 void main_rtc_init();
 void main_matrix_init();
 void main_ble_init();
-void update_rtc_time_from_ble(const struct tm *dt);
 
 void setup()
 {
@@ -52,7 +51,7 @@ void loop()
         {
             ble_update_rtc_time_cb(&_matrix_dt);
             memcpy(&_matrix_dt_prev, &_matrix_dt, sizeof(struct tm));
-            println_tm("_matrix_dt: ", &_matrix_dt);
+            //println_tm("_matrix_dt: ", &_matrix_dt);
         }
     }
 }
@@ -111,23 +110,35 @@ void main_matrix_init()
 }
 
 // BLE init
-void main_ble_init()
-{
-    ble_init(&update_rtc_time_from_ble);
-}
-
-void update_rtc_time_from_ble(const struct tm *dt)
+void set_rtc_time_on_ble_write(const struct tm *dt)
 {
     // update rtc
-    /*
     if (rtc_set_time(dt))
-        Serial.println("OK");
-    else
-        Serial.println("Failed");    
-    */
+    {
+        // update matrix
+        matrix_set_time(dt, true);
+        println_tm("-> Runtime date and time updated with the value", dt);
+        return;
+    }
 
-    // update matrix
-    matrix_update_dt(dt, true);
+    Serial.println(F("-> Error: Runtime date and time update failed"));
+}
 
-    println_tm("-> Runtime date and time updated with the value", dt);
+void set_matrix_show_on_ble_write(bool show)
+{
+    matrix_set_show(show);
+    Serial.printf("-> Matrix update show state: %b\n", show);
+}
+
+bool get_matrix_show_on_ble_read()
+{
+    return matrix_get_show();
+}
+
+void main_ble_init()
+{
+    ble_init(
+        &set_rtc_time_on_ble_write,
+        &set_matrix_show_on_ble_write,
+        &get_matrix_show_on_ble_read);
 }

@@ -14,7 +14,7 @@
 #define COLOR_ORDER RRBBGG
 
 // Initial brigtness for the welcome and "powered by" screens 7..255
-#define INIT_BRIGHTNESS   (255U) 
+#define INIT_BRIGHTNESS   (10U) 
 
 // If this is set to false, the number will only change if the value behind it changes
 // e.g. the digit representing the least significant minute will be replaced every minute,
@@ -23,7 +23,7 @@
 #define FORCE_UPDATE_ALL_DIGITS true
 
 // Comment for using constant brightness INIT_BRIGHTNESS
-#define ADJUST_BRIGHTNESS
+//#define ADJUST_BRIGHTNESS
 #ifdef ADJUST_BRIGHTNESS
 #define VARISTOR_PIN        (34)
 #define ADC_SCALE         (4095)
@@ -32,9 +32,14 @@
 #endif //ADJUST_BRIGHTNESS
 
 void matrix_init(struct tm *init_dt);
+
 void matrix_1hz_isr_loop();
 void matrix_100hz_loop();
-void matrix_update_dt(const struct tm *new_dt, bool force_update_display);
+
+void matrix_set_time(const struct tm *new_dt, bool force_update_display);
 void matrix_get_time(struct tm *dt_out);
+
+void matrix_set_show(bool show);
+bool matrix_get_show();
 
 #endif // __MATRIX_H__

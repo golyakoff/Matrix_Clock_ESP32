@@ -30,7 +30,10 @@ static uint32_t _mct_char_value;         // epoch time
 
 void start_advertising(BLEServer* pServer);
 
-static ble_updat_time_t _update_time_cb = nullptr;
+static ble_set_time_on_ble_write_t _set_time_on_ble_write = nullptr;
+
+static ble_set_show_on_ble_write_t _set_show_on_ble_write = nullptr;
+static ble_get_show_on_ble_read_t _get_show_on_ble_read = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public BLEServerCallbacks
@@ -71,23 +74,62 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 _mct_char_value,
                 _mct_char_value);
 
-            if (_update_time_cb != nullptr)
+            if (_set_time_on_ble_write != nullptr)
             {
-                Serial.println(F("Calling callback _update_time_cb(dt)... "));
+                Serial.println(F("Calling callback _set_time_on_ble_write(dt)... "));
                 time_t tim = (time_t)_mct_char_value;
                 tm *dt = gmtime(&tim);
-                _update_time_cb(dt);
+                _set_time_on_ble_write(dt);
                 Serial.println(F("OK"));
             }
-        }        
+            else
+            {
+                Serial.println(F("Error: callback _set_time_on_ble_write is nullptr."));
+            }
+        }
+        
+        if(pCharacteristic->getUUID().equals(_mctnc_char.getUUID()) && param->write.len == 1)
+        {
+            if (param->write.value[0] > 1)
+            {
+                Serial.println(F("Error, value of _mctnc_char provided is out of range [0, 1]."));
+                return;
+            }
+
+            if (_set_time_on_ble_write != nullptr)
+            {
+                Serial.println(F("Calling callback _set_show_on_ble_write(bool)... "));
+                _set_show_on_ble_write(param->write.value[0] == 1);
+                Serial.println(F("OK"));
+            }
+            else 
+            {
+                Serial.println(F("Error: callback _set_show_on_ble_write is nullptr."));
+            }
+        }
+    }
+
+    void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param)
+    {
+        if(pCharacteristic->getUUID().equals(_mctnc_char.getUUID()))
+        {
+            bool show = _get_show_on_ble_read();
+            uint8_t data_val[1] = { show ? 0x01 : 0x00 };
+            pCharacteristic->setValue(data_val, sizeof(data_val));
+        }
     }
 };
 MyCharacteristicCallbacks _myCharacteristicCallbacks;
 
-void ble_init(ble_updat_time_t ble_update_time_cb)
+void ble_init(
+    ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
+    ble_set_show_on_ble_write_t ble_set_show_on_ble_write_cb,
+    ble_get_show_on_ble_read_t ble_get_show_on_ble_read_cb)
 {
-    // init update time callback
-    _update_time_cb = ble_update_time_cb;
+    // init update callbacks
+    _set_time_on_ble_write = ble_set_time_on_ble_write_cb;
+    _set_show_on_ble_write = ble_set_show_on_ble_write_cb;
+    _get_show_on_ble_read = ble_get_show_on_ble_read_cb;
 
     // reset last updated date and time
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
@@ -136,14 +178,15 @@ void ble_init(ble_updat_time_t ble_update_time_cb)
     bleService->addCharacteristic(&_mctna_char);
     Serial.print(F("OK: "));
     Serial.println(_mctna_char.toString().c_str());
+    */
 
     // Add MatrixClock Turn On/Off Control characteristic
     Serial.print(F("Add MatrixClock Turn On/Off Control char... "));
     bleService->addCharacteristic(&_mctnc_char);
     _mctnc_char.addDescriptor(new BLE2902());
+    _mctnc_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
     Serial.println(_mctnc_char.toString().c_str());
-    */
 
     // Start the service
     Serial.print(F("bleService->start()... "));

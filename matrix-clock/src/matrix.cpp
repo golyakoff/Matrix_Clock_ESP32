@@ -12,13 +12,17 @@ hw_timer_t *animationTimer = NULL;
 PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D);
 TetrisMatrixDraw tetris(display);
 
+static uint8_t tim_100hz;
+
 static int _brightness = INIT_BRIGHTNESS;
+static int _brightness_last = -1;
+static bool _show = true;
+
 static bool _show_colon = true;
 static volatile bool _finished_animating = false;
-
 static bool _display_intro = true;
-static char _matrix_time_buffer[6]; // The buffer of the string containing time, like "12:34\n"
 
+static char _matrix_time_buffer[6]; // the buffer of the string containing time, like "12:34\n"
 static struct tm _dt;               // time to display on the matrix
 static bool _force_update;          // if "true", there will be performed forced update of the time
 
@@ -29,7 +33,7 @@ void IRAM_ATTR display_updater();
 void animation_handler();
 void draw_intro(int x, int y);
 void set_matrix_time();
-void adc_read_tick();
+void check_brightness_tick();
 
 #pragma endregion // Private methods declaration
 
@@ -37,7 +41,7 @@ void adc_read_tick();
 
 void matrix_init(struct tm *init_dt)
 {
-    matrix_update_dt(init_dt, true);
+    matrix_set_time(init_dt, true);
 
 #ifdef ADJUST_BRIGHTNESS
     pinMode(VARISTOR_PIN, INPUT);
@@ -94,11 +98,16 @@ void matrix_100hz_loop()
     // Update if minutes are different only or if update was forced after the time correction
     if (_dt.tm_sec >= 60 || _force_update)
     {
-        adc_read_tick();
         set_matrix_time();
         
         if (_force_update)
             _force_update = false;
+    }
+
+    if (++tim_100hz > 20)
+    {
+        check_brightness_tick();
+        tim_100hz = 0;
     }
 
     // To reduce flicker on the screen we stop clearing the screen
@@ -110,7 +119,7 @@ void matrix_100hz_loop()
     }
 }
 
-void matrix_update_dt(const struct tm *new_dt, bool force_update_display)
+void matrix_set_time(const struct tm *new_dt, bool force_update_display)
 {
     memcpy(&_dt, new_dt, sizeof(struct tm));
     
@@ -121,6 +130,16 @@ void matrix_update_dt(const struct tm *new_dt, bool force_update_display)
 void matrix_get_time(struct tm *dt_out)
 {
     memcpy(dt_out, &_dt, sizeof(struct tm));
+}
+
+void matrix_set_show(bool show)
+{
+    _show = show;
+}
+
+bool matrix_get_show()
+{
+    return _show;
 }
 
 #pragma endregion // Public methods definition
@@ -202,16 +221,30 @@ void handle_colon_after_animation()
     tetris.drawColon(x, y, colour);
 }
 
-void adc_read_tick()
+void check_brightness_tick()
 {
+    if (_show)
+    {
 #ifdef ADJUST_BRIGHTNESS
-    _brightness = map(
-        analogRead(VARISTOR_PIN),
-        0, ADC_SCALE,
-        PWM_MIN_VALUE, PWM_MAX_VALUE);
-
-    display.setBrightness(_brightness);
+        _brightness = map(
+            analogRead(VARISTOR_PIN),
+            0, ADC_SCALE,
+            PWM_MIN_VALUE, PWM_MAX_VALUE);
+#else
+        _brightness = INIT_BRIGHTNESS;
 #endif // ADJUST_BRIGHTNESS
+    }
+    else
+    {
+       _brightness = 0;
+    }
+
+    if (_brightness != _brightness_last)
+    {
+        display.setBrightness(_brightness);
+        Serial.printf("\nBrightness updated with value %d\n", _brightness);
+        _brightness_last = _brightness;
+    }
 }
 
 #pragma endregion // Private methods definition
