@@ -127,7 +127,7 @@ void set_rtc_time_on_ble_write(const struct tm *dt)
 void set_matrix_show_on_ble_write(bool show)
 {
     matrix_set_show(show);
-    Serial.printf("-> Matrix update show state: %b\n", show);
+    Serial.printf("-> Matrix update show state: %d\n", show);
 }
 
 bool get_matrix_show_on_ble_read()
@@ -135,10 +135,36 @@ bool get_matrix_show_on_ble_read()
     return matrix_get_show();
 }
 
+void set_matrix_auto_brightness_on_ble_write(bool auto_brightness)
+{
+    matrix_set_auto_brightness(auto_brightness);
+    Serial.printf("-> Matrix update auto brightness state: %d\n", auto_brightness);
+}
+
+bool get_matrix_auto_brightness_on_ble_read()
+{
+    return matrix_get_auto_brightness();
+}
+
+void set_matrix_manual_brightness_on_ble_write(uint8_t manual_brightness)
+{
+    matrix_set_manual_brightness(manual_brightness);
+    Serial.printf("-> Matrix update manual brightness value: %d\n", manual_brightness);
+}
+
+uint8_t get_matrix_manual_brightness_on_ble_read()
+{
+    return matrix_get_manual_brightness();
+}
+
 void main_ble_init()
 {
     ble_init(
         &set_rtc_time_on_ble_write,
         &set_matrix_show_on_ble_write,
-        &get_matrix_show_on_ble_read);
+        &get_matrix_show_on_ble_read,
+        &set_matrix_auto_brightness_on_ble_write,
+        &get_matrix_auto_brightness_on_ble_read,
+        &set_matrix_manual_brightness_on_ble_write,
+        &get_matrix_manual_brightness_on_ble_read);
 }

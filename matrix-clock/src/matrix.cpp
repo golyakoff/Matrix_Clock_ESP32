@@ -14,8 +14,11 @@ TetrisMatrixDraw tetris(display);
 
 static uint8_t tim_100hz;
 
-static int _brightness = INIT_BRIGHTNESS;
-static int _brightness_last = -1;
+static uint8_t _brightness = INIT_BRIGHTNESS;
+static uint8_t _brightness_last = 0;
+
+static uint8_t _manual_brightness = INIT_BRIGHTNESS;
+static bool _use_auto_brightness = false;
 static bool _show = true;
 
 static bool _show_colon = true;
@@ -142,6 +145,26 @@ bool matrix_get_show()
     return _show;
 }
 
+void matrix_set_auto_brightness(bool use_auto_brightness)
+{
+    _use_auto_brightness = use_auto_brightness;
+}
+
+bool matrix_get_auto_brightness()
+{
+    return _use_auto_brightness;
+}
+
+void matrix_set_manual_brightness(uint8_t manual_brightness)
+{
+    _manual_brightness = manual_brightness;
+}
+
+uint8_t matrix_get_manual_brightness( )
+{
+    return _manual_brightness;
+}
+
 #pragma endregion // Public methods definition
 
 #pragma region Private methods definition
@@ -225,14 +248,17 @@ void check_brightness_tick()
 {
     if (_show)
     {
-#ifdef ADJUST_BRIGHTNESS
-        _brightness = map(
-            analogRead(VARISTOR_PIN),
-            0, ADC_SCALE,
-            PWM_MIN_VALUE, PWM_MAX_VALUE);
-#else
-        _brightness = INIT_BRIGHTNESS;
-#endif // ADJUST_BRIGHTNESS
+        if (_use_auto_brightness)
+        {
+            _brightness = map(
+                analogRead(VARISTOR_PIN),
+                0, ADC_SCALE,
+                PWM_MIN_VALUE, PWM_MAX_VALUE);
+        }
+        else
+        {
+            _brightness = _manual_brightness;
+        }
     }
     else
     {
@@ -242,7 +268,7 @@ void check_brightness_tick()
     if (_brightness != _brightness_last)
     {
         display.setBrightness(_brightness);
-        Serial.printf("\nBrightness updated with value %d\n", _brightness);
+        Serial.printf("Brightness updated with value %d\n", _brightness);
         _brightness_last = _brightness;
     }
 }
