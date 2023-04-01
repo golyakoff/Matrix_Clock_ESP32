@@ -171,9 +171,10 @@ public:
                      uint8_t *wday);
 
     // Alarm functions
-    bool setAlarm1(Alarm1Type alarmType,
-                          uint8_t dayDate, uint8_t hours, uint8_t minutes, uint8_t seconds);
+    bool setAlarm1(Alarm1Type alarmType, uint8_t dayDate, uint8_t hours, uint8_t minutes, uint8_t seconds);
+    bool getAlarm1(Alarm1Type *alarmType, uint8_t *dayDate, uint8_t *hours, uint8_t *minutes, uint8_t *seconds);
     bool setAlarm2(Alarm2Type alarmType, uint8_t dayDate, uint8_t hours, uint8_t minutes);
+    bool getAlarm2(Alarm2Type *alarmType, uint8_t *dayDate, uint8_t *hours, uint8_t *minutes);
     bool alarmInterruptEnable(AlarmId alarmId, bool enable);
     bool getAlarmFlag(AlarmId alarmId);
     bool clearAlarmFlag(AlarmId alarmId);

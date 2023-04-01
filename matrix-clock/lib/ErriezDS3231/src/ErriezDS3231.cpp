@@ -468,6 +468,34 @@ bool ErriezDS3231::setAlarm1(Alarm1Type alarmType,
     return clearAlarmFlag(Alarm1);
 }
 
+bool ErriezDS3231::getAlarm1(Alarm1Type *alarmType, uint8_t *dayDate, uint8_t *hours, uint8_t *minutes, uint8_t *seconds)
+{
+    uint8_t buffer[4];
+
+    // Read alarm 1 registers
+    if (!readBuffer(DS3231_REG_ALARM1_SEC, &buffer, sizeof(buffer))) {
+        return false;
+    }
+
+    *seconds = bcdToDec(buffer[0]) & ~(1 << DS3231_A1M1);
+    *minutes = bcdToDec(buffer[1]) & ~(1 << DS3231_A1M2);
+    *hours = (buffer[2] | (1 << DS3231_HOUR_12H_24H))
+        ? bcdToDec(buffer[2]) & ~(1 << DS3231_A2M3) & ~(1 << DS3231_HOUR_12H_24H) & ~(1 << DS3231_HOUR_AM_PM)
+        : bcdToDec(buffer[2]) & ~(1 << DS3231_A2M3) & ~(1 << DS3231_HOUR_12H_24H);
+    if ((buffer[2] & (1 << DS3231_HOUR_12H_24H)) > 0 && (buffer[2] & (1 << DS3231_HOUR_AM_PM)) > 0)
+        *hours += 12;
+    *dayDate = bcdToDec(buffer[3]) & ~(1 << DS3231_A1M4) & ~(1 << DS3231_DYDT);
+
+    *alarmType = (Alarm1Type)0;
+    if (buffer[0] & ((1 << DS3231_A1M1) << 0)) { (*alarmType) = (Alarm1Type)((*alarmType) | 0x01); }
+    if (buffer[1] & ((1 << DS3231_A1M2) << 1)) { (*alarmType) = (Alarm1Type)((*alarmType) | 0x02); }
+    if (buffer[2] & ((1 << DS3231_A1M3) << 2)) { (*alarmType) = (Alarm1Type)((*alarmType) | 0x04); }
+    if (buffer[3] & ((1 << DS3231_A1M4) << 3)) { (*alarmType) = (Alarm1Type)((*alarmType) | 0x08); }
+    if (buffer[3] & ((1 << DS3231_DYDT) << 4)) { (*alarmType) = (Alarm1Type)((*alarmType) | 0x10); }
+
+    return true;
+}
+
 /*!
  * \brief Set Alarm 2.
  * \details
@@ -514,6 +542,32 @@ bool ErriezDS3231::setAlarm2(Alarm2Type alarmType, uint8_t dayDate, uint8_t hour
 
     // Clear alarm 2 flag
     return clearAlarmFlag(Alarm2);
+}
+
+bool ErriezDS3231::getAlarm2(Alarm2Type *alarmType, uint8_t *dayDate, uint8_t *hours, uint8_t *minutes)
+{
+    uint8_t buffer[3];
+
+    // Read alarm 2 registers
+    if (!readBuffer(DS3231_REG_ALARM2_MIN, &buffer, sizeof(buffer))) {
+        return false;
+    }
+
+    *minutes = bcdToDec(buffer[1]) & ~(1 << DS3231_A2M2);
+    *hours = (buffer[2] | (1 << DS3231_HOUR_12H_24H))
+        ? bcdToDec(buffer[2]) & ~(1 << DS3231_A2M3) & ~(1 << DS3231_HOUR_12H_24H) & ~(1 << DS3231_HOUR_AM_PM)
+        : bcdToDec(buffer[2]) & ~(1 << DS3231_A2M3) & ~(1 << DS3231_HOUR_12H_24H);
+    if ((buffer[2] & (1 << DS3231_HOUR_12H_24H)) > 0 && (buffer[2] & (1 << DS3231_HOUR_AM_PM)) > 0)
+        *hours += 12;
+    *dayDate = bcdToDec(buffer[3]) & ~(1 << DS3231_A2M4) & ~(1 << DS3231_DYDT);
+
+    *alarmType = (Alarm2Type)0;
+    if (buffer[1] & ((1 << DS3231_A2M2) << 1)) { (*alarmType) = (Alarm2Type)((*alarmType) | 0x02); }
+    if (buffer[2] & ((1 << DS3231_A2M3) << 2)) { (*alarmType) = (Alarm2Type)((*alarmType) | 0x04); }
+    if (buffer[3] & ((1 << DS3231_A2M4) << 3)) { (*alarmType) = (Alarm2Type)((*alarmType) | 0x08); }
+    if (buffer[3] & ((1 << DS3231_DYDT) << 4)) { (*alarmType) = (Alarm2Type)((*alarmType) | 0x10); }
+
+    return true;
 }
 
 /*!
