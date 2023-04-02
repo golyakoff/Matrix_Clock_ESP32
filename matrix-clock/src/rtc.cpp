@@ -6,23 +6,23 @@
 
 ErriezDS3231 rtc;
 
-#ifdef DEBUG_RTC_EEPROM
+#ifdef DEBUG_RTC_MEMORY
 #include <HardwareSerial.h>
 #endif
 
 struct tm get_build_tm();
 
-#ifdef DEBUG_RTC_EEPROM
-void rtc_eeprom_alarm_test(alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active);
-void rtc_eeprom_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value);
-void rtc_eeprom_show_test(bool show);
-#endif // DEBUG_RTC_EEPROM
+#ifdef DEBUG_RTC_MEMORY
+void rtc_memory_alarm_test(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active);
+void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value);
+void rtc_memory_show_test(bool show);
+#endif // DEBUG_RTC_MEMORY
 
-#define RTC_EEPROM_TOTAL_MINUTES_MASK   0b0000011111111111
-#define RTC_EEPROM_IS_ACTIVE_MASK       0b0000100000000000
-#define RTC_EEPROM_MANUAL_BRIGHT_MASK           0b00001111
-#define RTC_EEPROM_IS_AUTO_BRIGHT_MASK          0b00010000
-#define RTC_EEPROM_SHOW_MASK                    0b00000001
+#define RTC_MEMORY_TOTAL_MINUTES_MASK   0b0000011111111111
+#define RTC_MEMORY_IS_ACTIVE_MASK       0b0000100000000000
+#define RTC_MEMORY_MANUAL_BRIGHT_MASK           0b00001111
+#define RTC_MEMORY_IS_AUTO_BRIGHT_MASK          0b00010000
+#define RTC_MEMORY_SHOW_MASK                    0b00000001
 
 bool rtc_init()
 {
@@ -44,23 +44,23 @@ bool rtc_init()
     // Enable 1Hz SQW
     ok &= rtc.setSquareWave(SquareWave1Hz);
 
-#ifdef DEBUG_RTC_EEPROM
+#ifdef DEBUG_RTC_MEMORY
     // RTC alarm tests
-    rtc_eeprom_alarm_test(alarm_index_off, 23, 59, true);
-    rtc_eeprom_alarm_test(alarm_index_off, 4, 12, false);
-    rtc_eeprom_alarm_test(alarm_index_off, 12, 00, true);
+    rtc_memory_alarm_test(rtc_alarm_index_off, 23, 59, true);
+    rtc_memory_alarm_test(rtc_alarm_index_off, 4, 12, false);
+    rtc_memory_alarm_test(rtc_alarm_index_off, 12, 00, true);
 
-    rtc_eeprom_alarm_test(alarm_index_on, 8, 35, false);
-    rtc_eeprom_alarm_test(alarm_index_on, 11, 59, true);
-    rtc_eeprom_alarm_test(alarm_index_on, 21, 22, false);
+    rtc_memory_alarm_test(rtc_alarm_index_on, 8, 35, false);
+    rtc_memory_alarm_test(rtc_alarm_index_on, 11, 59, true);
+    rtc_memory_alarm_test(rtc_alarm_index_on, 21, 22, false);
 
-    rtc_eeprom_bright_test(true, 10);
-    rtc_eeprom_bright_test(false, 15);
-    rtc_eeprom_bright_test(true, 0);
+    rtc_memory_bright_test(true, 10);
+    rtc_memory_bright_test(false, 15);
+    rtc_memory_bright_test(true, 0);
 
-    rtc_eeprom_show_test(true);
-    rtc_eeprom_show_test(false);
-#endif // DEBUG_RTC_EEPROM
+    rtc_memory_show_test(true);
+    rtc_memory_show_test(false);
+#endif // DEBUG_RTC_MEMORY
 
     return ok;
 }
@@ -80,15 +80,15 @@ bool rtc_get_temperature(int8_t *temperature, uint8_t *fraction)
     return rtc.getTemperature(temperature, fraction);
 }
 
-bool rtc_memory_set_alarm(alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
+bool rtc_memory_set_alarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
 {
     uint8_t reg_addr;
     switch (index)
     {
-        case alarm_index_off:
+        case rtc_alarm_index_off:
             reg_addr = DS3231_REG_ALARM1_SEC;
             break;
-        case alarm_index_on:
+        case rtc_alarm_index_on:
             reg_addr = DS3231_REG_ALARM2_MIN;
             break;
         default:
@@ -96,19 +96,19 @@ bool rtc_memory_set_alarm(alarm_index_t index, uint8_t hours, uint8_t minutes, b
             break;
     }
 
-    uint16_t buffer = minutes + 60 * hours + (is_active ? RTC_EEPROM_IS_ACTIVE_MASK : 0);
+    uint16_t buffer = minutes + 60 * hours + (is_active ? RTC_MEMORY_IS_ACTIVE_MASK : 0);
     return rtc.writeBuffer(reg_addr, &buffer, sizeof(buffer));
 }
 
-bool rtc_memory_get_alarm(alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *is_active)
+bool rtc_memory_get_alarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *is_active)
 {
     uint8_t reg_addr;
     switch (index)
     {
-        case alarm_index_off:
+        case rtc_alarm_index_off:
             reg_addr = DS3231_REG_ALARM1_SEC;
             break;
-        case alarm_index_on:
+        case rtc_alarm_index_on:
             reg_addr = DS3231_REG_ALARM2_MIN;
             break;
         default:
@@ -120,9 +120,9 @@ bool rtc_memory_get_alarm(alarm_index_t index, uint8_t *hours, uint8_t *minutes,
     if (!rtc.readBuffer(reg_addr, &buffer, sizeof(buffer)))
         return false;
 
-    *is_active = (buffer & RTC_EEPROM_IS_ACTIVE_MASK) > 0;
-    *minutes = (buffer & RTC_EEPROM_TOTAL_MINUTES_MASK) % 60;
-    *hours = (buffer & RTC_EEPROM_TOTAL_MINUTES_MASK) / 60;
+    *is_active = (buffer & RTC_MEMORY_IS_ACTIVE_MASK) > 0;
+    *minutes = (buffer & RTC_MEMORY_TOTAL_MINUTES_MASK) % 60;
+    *hours = (buffer & RTC_MEMORY_TOTAL_MINUTES_MASK) / 60;
 
     return true;
 }
@@ -130,8 +130,8 @@ bool rtc_memory_get_alarm(alarm_index_t index, uint8_t *hours, uint8_t *minutes,
 bool rtc_memory_set_bright(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
     uint8_t buffer = 
-        (manual_brightness_value & RTC_EEPROM_MANUAL_BRIGHT_MASK) +
-        (use_auto_brightness ? RTC_EEPROM_IS_AUTO_BRIGHT_MASK : 0);
+        (manual_brightness_value & RTC_MEMORY_MANUAL_BRIGHT_MASK) +
+        (use_auto_brightness ? RTC_MEMORY_IS_AUTO_BRIGHT_MASK : 0);
 
     return rtc.writeBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer));
 }
@@ -142,15 +142,15 @@ bool rtc_memory_get_bright(bool *use_auto_brightness, uint8_t *manual_brightness
     if (!rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
         return false;
 
-    *use_auto_brightness = (buffer & RTC_EEPROM_IS_AUTO_BRIGHT_MASK) > 0;
-    *manual_brightness_value = (buffer & RTC_EEPROM_MANUAL_BRIGHT_MASK);
+    *use_auto_brightness = (buffer & RTC_MEMORY_IS_AUTO_BRIGHT_MASK) > 0;
+    *manual_brightness_value = (buffer & RTC_MEMORY_MANUAL_BRIGHT_MASK);
 
     return true;
 }
 
 bool rtc_memory_set_show(bool show)
 {
-    uint8_t buffer = (show ? RTC_EEPROM_SHOW_MASK : 0);
+    uint8_t buffer = (show ? RTC_MEMORY_SHOW_MASK : 0);
     return rtc.writeBuffer(DS3231_REG_ALARM2_DD, &buffer, sizeof(buffer));
 }
 
@@ -160,7 +160,7 @@ bool rtc_memory_get_show(bool *show)
     if (!rtc.readBuffer(DS3231_REG_ALARM2_DD, &buffer, sizeof(buffer)))
         return false;
 
-    *show = (buffer & RTC_EEPROM_SHOW_MASK) > 0;
+    *show = (buffer & RTC_MEMORY_SHOW_MASK) > 0;
 
     return true;
 }
@@ -185,11 +185,11 @@ struct tm get_build_tm()
     return t;
 }
 
-#ifdef DEBUG_RTC_EEPROM
+#ifdef DEBUG_RTC_MEMORY
 // RTC init with debug messages
-void rtc_eeprom_alarm_test(alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
+void rtc_memory_alarm_test(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
 {
-    Serial.printf("RTC EEPROM alarm %d test: write and read alarm time %02d:%02d, is_active:%d ", index, hours, minutes, is_active);
+    Serial.printf("RTC MEMORY alarm %d test: write and read alarm time %02d:%02d, is_active:%d ", index, hours, minutes, is_active);
 
     uint8_t actual_hours = 0;
     uint8_t actual_minutes = 0;
@@ -220,10 +220,10 @@ void rtc_eeprom_alarm_test(alarm_index_t index, uint8_t hours, uint8_t minutes, 
     Serial.println(F("OK"));
 }
 
-void rtc_eeprom_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value)
+void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
     Serial.printf(
-        "RTC EEPROM bright test: use_auto_brightness = %d, manual_brightness_value = %d ",
+        "RTC MEMORY bright test: use_auto_brightness = %d, manual_brightness_value = %d ",
         use_auto_brightness,
         manual_brightness_value);
 
@@ -254,9 +254,9 @@ void rtc_eeprom_bright_test(bool use_auto_brightness, uint8_t manual_brightness_
 
     Serial.println(F("OK"));
 }
-void rtc_eeprom_show_test(bool show)
+void rtc_memory_show_test(bool show)
 {
-    Serial.printf("RTC EEPROM show test: show = %d ", show);
+    Serial.printf("RTC MEMORY show test: show = %d ", show);
 
     bool actual_show = false;
 
@@ -280,4 +280,4 @@ void rtc_eeprom_show_test(bool show)
 
     Serial.println(F("OK"));
 }
-#endif // DEBUG_RTC_EEPROM
+#endif // DEBUG_RTC_MEMORY

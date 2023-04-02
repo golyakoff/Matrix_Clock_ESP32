@@ -50,17 +50,17 @@
 #define RTC_SQW     (35U)
 
 typedef enum {
-    alarm_index_on = 1,
-    alarm_index_off = 2
-} alarm_index_t;
+    rtc_alarm_index_on = 1,
+    rtc_alarm_index_off = 2
+} rtc_alarm_index_t;
 
 bool rtc_init();
 bool rtc_get_time(struct tm *dt_out);
 bool rtc_set_time(const struct tm *dt_new);
 bool rtc_get_temperature(int8_t *temperature, uint8_t *fraction);
 
-bool rtc_memory_set_alarm(alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active);
-bool rtc_memory_get_alarm(alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *is_active);
+bool rtc_memory_set_alarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active);
+bool rtc_memory_get_alarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *is_active);
 
 bool rtc_memory_set_bright(bool use_auto_brightness, uint8_t manual_brightness_value);
 bool rtc_memory_get_bright(bool *use_auto_brightness, uint8_t *manual_brightness_value);
