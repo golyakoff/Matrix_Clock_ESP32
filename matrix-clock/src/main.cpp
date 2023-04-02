@@ -18,12 +18,19 @@
 #include "rtc.h"
 #include "matrix.h"
 #include "ble.h"
+#include "alarm.h"
 
 static unsigned long _10ms_loop_due = 0;
 
 static struct tm _rtc_dt;
 static struct tm _matrix_dt;
 static struct tm _matrix_dt_prev;
+
+void alarm_off_callback(const uint8_t hours, const uint8_t minutes);
+static Alarm alarm_off = Alarm(&alarm_off_callback);
+
+void alarm_on_callback(const uint8_t hours, const uint8_t minutes);
+static Alarm alarm_on = Alarm(&alarm_on_callback);
 
 void main_rtc_init();
 void main_matrix_init();
@@ -51,7 +58,8 @@ void loop()
         {
             ble_update_rtc_time_cb(&_matrix_dt);
             memcpy(&_matrix_dt_prev, &_matrix_dt, sizeof(struct tm));
-            //println_tm("_matrix_dt: ", &_matrix_dt);
+            alarm_on.tick(&_matrix_dt);
+            alarm_off.tick(&_matrix_dt);
         }
     }
 }
@@ -100,6 +108,15 @@ void main_rtc_init()
         _rtc_dt.tm_sec);
 
     attachInterrupt(RTC_SQW, matrix_1hz_isr_loop, FALLING);
+
+    // Initialize runtime alarms from RTC
+    uint8_t hours;
+    uint8_t minutes;
+    bool active;
+    rtc_memory_get_alarm(rtc_alarm_index_on, &hours, &minutes, &active);
+    alarm_on.set(hours, minutes, active);
+    rtc_memory_get_alarm(rtc_alarm_index_off, &hours, &minutes, &active);
+    alarm_off.set(hours, minutes, active);
 }
 
 // Matrix init with debug message
@@ -157,6 +174,43 @@ uint8_t get_matrix_manual_brightness_on_ble_read()
     return matrix_get_manual_brightness();
 }
 
+void set_matrix_alarm_on_ble_write(ble_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
+{
+    Serial.printf("Call set_matrix_alarm_on_ble_write(%d, %02d, %02d, %d)", index, hours, active);
+    switch (index)
+    {
+        case ble_alarm_index_off:
+            alarm_off.set(hours, minutes, active);
+            if (!rtc_memory_set_alarm(rtc_alarm_index_off, hours, minutes, active))
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > rtc_memory_set_alarm(rtc_alarm_index_off...)"));
+            break;
+        case ble_alarm_index_on:
+            alarm_on.set(hours, minutes, active);
+            if (!rtc_memory_set_alarm(rtc_alarm_index_on, hours, minutes, active))
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > rtc_memory_set_alarm(ble_alarm_index_on...)"));
+            break;
+        default:
+            break;
+            Serial.printf("Error: Unknown alarm index '%d' in set_matrix_alarm_on_ble_write()", index);
+    }
+}
+
+void get_matrix_alarm_on_ble_read(ble_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *active)
+{
+    switch (index)
+    {
+        case ble_alarm_index_off:
+            alarm_off.get(hours, minutes, active);
+            break;
+        case ble_alarm_index_on:
+            alarm_on.get(hours, minutes, active);
+            break;
+        default:
+            break;
+            Serial.printf("Error: Unknown alarm index '%d' in get_matrix_alarm_on_ble_read()", index);
+    }
+}
+
 void main_ble_init()
 {
     ble_init(
@@ -166,5 +220,19 @@ void main_ble_init()
         &set_matrix_auto_brightness_on_ble_write,
         &get_matrix_auto_brightness_on_ble_read,
         &set_matrix_manual_brightness_on_ble_write,
-        &get_matrix_manual_brightness_on_ble_read);
+        &get_matrix_manual_brightness_on_ble_read,
+        &set_matrix_alarm_on_ble_write,
+        &get_matrix_alarm_on_ble_read);
 }
+
+ void alarm_off_callback(const uint8_t hours, const uint8_t minutes)
+ {
+    matrix_set_show(false);
+    ble_update_matrix_show_cb(false);
+ }
+
+ void alarm_on_callback(const uint8_t hours, const uint8_t minutes)
+ {
+    matrix_set_show(true);
+    ble_update_matrix_show_cb(true);
+ }

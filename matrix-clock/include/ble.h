@@ -32,7 +32,6 @@
 // Control point to setup manual brightness adjustment value
 #define MC_MANUAL_BRIGHT_VAL_CHAR_UUID      "117ED80D-AF6E-4E4D-B900-48F68725A7D3" // M Read, Write
 
-
 typedef void (*ble_set_time_on_ble_write_t)(const struct tm *dt);
 
 typedef void (*ble_set_show_on_ble_write_t)(const bool show);
@@ -44,6 +43,23 @@ typedef bool (*ble_get_auto_bright_en_on_ble_read_t)();
 typedef void (*ble_set_manual_bright_val_on_ble_write_t)(const uint8_t manual_brightness);
 typedef uint8_t (*ble_get_manual_bright_val_on_ble_read_t)();
 
+typedef enum {
+    ble_alarm_index_on = 1,
+    ble_alarm_index_off = 2
+} ble_alarm_index_t;
+
+typedef void (*ble_set_alarm_on_ble_write_t)(
+    const ble_alarm_index_t index,
+    const uint8_t hours,
+    const uint8_t minutes,
+    const bool active);
+
+typedef void (*ble_get_alarm_on_ble_read_t)(
+    ble_alarm_index_t index,
+    uint8_t *hours,
+    uint8_t *minutes,
+    bool *active);
+
 void ble_init(
     ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
     ble_set_show_on_ble_write_t ble_set_show_on_ble_write_cb,
@@ -51,8 +67,11 @@ void ble_init(
     ble_set_auto_bright_en_on_ble_write_t ble_set_auto_bright_en_on_ble_write_cb,
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
-    ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb);
+    ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
+    ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb);
 void ble_update_rtc_time_cb(struct tm *dt);
+void ble_update_matrix_show_cb(const bool show);
 
 #endif // __BLE_H__
 

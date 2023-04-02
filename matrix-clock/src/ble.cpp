@@ -8,14 +8,17 @@
 #include "time_helper.h"
 #include "ble.h"
 
+#define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
+#define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
+
 // BLE Transmission Type: LSO: Least Significant Octet First
 
 // Declare and init BLE characteristics
 static BLECharacteristic _mct_char(MC_TIME_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
 static BLECharacteristic _mcts_char(MC_TIME_STR_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
 
-static BLECharacteristic _mctfa_char(MC_TURN_OFF_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mctna_char(MC_TURN_ON_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mctofa_char(MC_TURN_OFF_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mctona_char(MC_TURN_ON_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
 
@@ -42,6 +45,8 @@ static ble_get_auto_bright_en_on_ble_read_t _get_auto_bright_en_on_ble_read = nu
 static ble_set_auto_bright_en_on_ble_write_t _set_auto_bright_en_on_ble_write = nullptr;
 static ble_get_manual_bright_val_on_ble_read_t _get_manual_bright_val_on_ble_read = nullptr;
 static ble_set_manual_bright_val_on_ble_write_t _set_manual_bright_val_on_ble_write = nullptr;
+static ble_set_alarm_on_ble_write_t _set_alarm_on_ble_write = nullptr;
+static ble_get_alarm_on_ble_read_t _get_alarm_on_ble_read = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public BLEServerCallbacks
@@ -149,6 +154,35 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             Serial.println(F("OK"));
             return;
         }
+
+        if ((pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) || 
+             pCharacteristic->getUUID().equals(_mctona_char.getUUID())) &&
+            param->write.len == 2)
+        {
+            if (_set_alarm_on_ble_write == nullptr)
+            {
+                Serial.println(F("Error: callback _set_alarm_on_ble_write is nullptr."));
+                return;
+            }
+
+            Serial.printf("BLE::onWrite for alarm: Bytes: h = %02x l = %02x", param->write.value[1], param->write.value[0]);
+            uint16_t result = ((uint16_t)(param->write.value[1]) << 8) + param->write.value[0];
+
+            Serial.printf("BLE::onWrite for alarm: uint16_t result = %d", result);
+            
+            bool active = (result & BLE_ALARM_IS_ACTIVE_MASK) > 0;
+            uint8_t hours = (result & BLE_ALARM_TOTAL_MINUTES_MASK) / 60;
+            uint8_t minutes = (result & BLE_ALARM_TOTAL_MINUTES_MASK) % 60;
+            ble_alarm_index_t index = pCharacteristic->getUUID().equals(_mctofa_char.getUUID())
+                ? ble_alarm_index_off
+                : ble_alarm_index_on;
+
+            Serial.println(F("Calling callback _set_alarm_on_ble_write()... "));
+            _set_alarm_on_ble_write(index, hours, minutes, active);
+            
+            Serial.println(F("OK"));
+            return;
+        }
     }
 
     void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param)
@@ -158,7 +192,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             bool show = _get_show_on_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(show ? 1U : 0U) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
-            return;            
+            return;
         }
 
         if(pCharacteristic->getUUID().equals(_mcabe_char.getUUID()))
@@ -166,7 +200,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             bool enable_auto_brightness = _get_auto_bright_en_on_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(enable_auto_brightness ? 1U : 0U) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
-            return;            
+            return;
         }
 
         if(pCharacteristic->getUUID().equals(_mcmbv_char.getUUID()))
@@ -174,7 +208,24 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             uint8_t manual_brightness_value = _get_manual_bright_val_on_ble_read();
             uint8_t data_val[1] = { manual_brightness_value };
             pCharacteristic->setValue(data_val, sizeof(data_val));
-            return;            
+            return;
+        }
+
+        if(pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) ||
+           pCharacteristic->getUUID().equals(_mctona_char.getUUID()))
+        {
+            ble_alarm_index_t index = pCharacteristic->getUUID().equals(_mctofa_char.getUUID())
+                ? ble_alarm_index_off
+                : ble_alarm_index_on;
+            uint8_t hours;
+            uint8_t minutes;
+            bool active;
+            _get_alarm_on_ble_read(index, &hours, &minutes, &active);
+
+            uint16_t data_val = minutes + hours * 60 + (active ? BLE_ALARM_IS_ACTIVE_MASK : 0);
+
+            pCharacteristic->setValue(data_val);
+            return;
         }
     }
 };
@@ -187,7 +238,9 @@ void ble_init(
     ble_set_auto_bright_en_on_ble_write_t ble_set_auto_bright_en_on_ble_write_cb,
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
-    ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb)
+    ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
+    ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb)
 {
     // init update callbacks
     _set_time_on_ble_write = ble_set_time_on_ble_write_cb;
@@ -200,6 +253,9 @@ void ble_init(
 
     _set_manual_bright_val_on_ble_write = ble_set_manual_bright_val_on_ble_write_cb;
     _get_manual_bright_val_on_ble_read = ble_get_manual_bright_val_on_ble_read_cb;
+
+    _set_alarm_on_ble_write = ble_set_alarm_on_ble_write_cb;
+    _get_alarm_on_ble_read = ble_get_alarm_on_ble_read_cb;
 
     // reset last updated date and time
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
@@ -233,19 +289,19 @@ void ble_init(
     Serial.print(F("OK: "));
     Serial.println(_mcts_char.toString().c_str());
 
-    /*
     // Add MatrixClock Turn Off Alarm characteristic
     Serial.print(F("Add MatrixClock Turn Off Alarm char... "));
-    bleService->addCharacteristic(&_mctfa_char);
+    bleService->addCharacteristic(&_mctofa_char);
+    _mctofa_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
-    Serial.println(_mctfa_char.toString().c_str());
+    Serial.println(_mctofa_char.toString().c_str());
 
     // Add MatrixClock Turn On Alarm characteristic
     Serial.print(F("Add MatrixClock Turn On Alarm char... "));
-    bleService->addCharacteristic(&_mctna_char);
+    bleService->addCharacteristic(&_mctona_char);
+    _mctona_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
-    Serial.println(_mctna_char.toString().c_str());
-    */
+    Serial.println(_mctona_char.toString().c_str());
 
     // Add MatrixClock Turn On/Off Control characteristic
     Serial.print(F("Add MatrixClock Turn On/Off Control char... "));
@@ -298,6 +354,13 @@ void ble_update_rtc_time_cb(struct tm *dt)
         _mct_char.setValue(_mct_char_value);
         _mct_char.notify();
     }
+}
+
+void ble_update_matrix_show_cb(const bool show)
+{
+    uint8_t value[1] = { (uint8_t)(show ? 0x01 : 0x00) };
+    _mctnc_char.setValue(value, sizeof(value));
+    _mctnc_char.notify();
 }
 
 void start_advertising(BLEServer* pServer)
