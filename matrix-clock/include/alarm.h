@@ -1,5 +1,4 @@
-#ifndef __ALARM_H__
-#define __ALARM_H__
+#pragma once
 
 #include "stdint.h"
 #include "stdbool.h"
@@ -21,5 +20,3 @@ class Alarm
         alarmCallback_t _callback;
         bool _alreadyFired;
 };
-
-#endif // __ALARM_H__
