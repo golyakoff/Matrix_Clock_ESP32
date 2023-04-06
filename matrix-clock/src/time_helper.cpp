@@ -16,7 +16,7 @@ bool times_are_different(const struct tm* dt1, const struct tm* dt2)
 void println_tm(const char *prefix, const struct tm *dt)
 {
     Serial.printf(
-        "%s:\t%d-%02d-%02d %02d:%02d:%02d\n",
+        "%s: %d-%02d-%02d %02d:%02d:%02d\n",
         prefix,
         dt->tm_year + 1900,
         dt->tm_mon,
