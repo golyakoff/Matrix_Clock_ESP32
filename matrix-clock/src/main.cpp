@@ -10,15 +10,17 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-// Additional Libraries
-#include <ErriezDS3231.h>
-
 // Project includes
 #include "time_helper.h"
 #include "rtc.h"
 #include "matrix.h"
 #include "ble.h"
 #include "alarm.h"
+
+#define RTC_SPEED   (400000U)
+#define RTC_SCL     (26U)
+#define RTC_SDA     (27U)
+#define RTC_SQW     (35U)
 
 static unsigned long _10ms_loop_due = 0;
 
@@ -27,10 +29,12 @@ static struct tm _matrix_dt;
 static struct tm _matrix_dt_prev;
 
 void alarm_off_callback(const uint8_t hours, const uint8_t minutes);
-static Alarm alarm_off = Alarm(&alarm_off_callback);
+static Alarm alarmOff = Alarm(&alarm_off_callback);
 
 void alarm_on_callback(const uint8_t hours, const uint8_t minutes);
-static Alarm alarm_on = Alarm(&alarm_on_callback);
+static Alarm alarmOn = Alarm(&alarm_on_callback);
+
+RealTimeClock rtc;
 
 void main_rtc_init();
 void main_matrix_init();
@@ -58,8 +62,8 @@ void loop()
         {
             ble_update_rtc_time_cb(&_matrix_dt);
             memcpy(&_matrix_dt_prev, &_matrix_dt, sizeof(struct tm));
-            alarm_on.tick(&_matrix_dt);
-            alarm_off.tick(&_matrix_dt);
+            alarmOn.tick(&_matrix_dt);
+            alarmOff.tick(&_matrix_dt);
         }
     }
 }
@@ -67,39 +71,38 @@ void loop()
 // RTC init with debug messages
 void main_rtc_init()
 {
-    if (!rtc_init())
+    if (!rtc.init(RTC_SDA, RTC_SCL, RTC_SPEED))
     {
         for(;;) {
-            Serial.println(F("Error: rtc_init(). RTC was not initialized!"));
+            Serial.println(F("Error: rtc.init(). RTC was not initialized!"));
             delay(5000);
         }
     }    
-    Serial.println(F("rtc_init(): OK"));
+    Serial.println(F("rtc.init(): OK"));
     
     // Write out RTC chip temperature
     int8_t rtc_t;
     uint8_t rtc_f;
-    if (!rtc_get_temperature(&rtc_t, &rtc_f))
+    if (!rtc.getTemperature(&rtc_t, &rtc_f))
     {
         for(;;) {
-            Serial.println(F("Error: rtc_get_temperature(). Cannot read temperature from RTC!"));
+            Serial.println(F("Error: rtc.getTemperature(). Cannot read temperature from RTC!"));
             delay(5000);
         }
     }
-    Serial.printf("rtc_get_temperature(): OK : %d.%d\n", rtc_t, rtc_f);
+    Serial.printf("rtc.getTemperature(): OK : %d.%d\n", rtc_t, rtc_f);
 
     // Write out RTC date and time
-    if (!rtc_get_time(&_rtc_dt))
+    if (!rtc.getTime(&_rtc_dt))
     {
         for(;;) {
-            Serial.println(F("Error: rtc_get_time(). Cannot read time from RTC!"));
+            Serial.println(F("Error: rtc.getTime(). Cannot read time from RTC!"));
             delay(5000);
         }
     }
-    println_tm("_matrix_dt: ", &_rtc_dt);
+    println_tm("initialized _rtc_dt: ", &_rtc_dt);
     Serial.printf(
-        "%s: %d-%02d-%02d %02d:%02d:%02d\n",
-        F("rtc_get_time(): OK "),
+        "rtc.getTime(): OK : %d-%02d-%02d %02d:%02d:%02d\n",
         _rtc_dt.tm_year + 1900,
         _rtc_dt.tm_mon,
         _rtc_dt.tm_mday,
@@ -113,10 +116,10 @@ void main_rtc_init()
     uint8_t hours;
     uint8_t minutes;
     bool active;
-    rtc_memory_get_alarm(rtc_alarm_index_on, &hours, &minutes, &active);
-    alarm_on.set(hours, minutes, active);
-    rtc_memory_get_alarm(rtc_alarm_index_off, &hours, &minutes, &active);
-    alarm_off.set(hours, minutes, active);
+    rtc.loadAlarm(rtc_alarm_index_on, &hours, &minutes, &active);
+    alarmOn.set(hours, minutes, active);
+    rtc.loadAlarm(rtc_alarm_index_off, &hours, &minutes, &active);
+    alarmOff.set(hours, minutes, active);
 }
 
 // Matrix init with debug message
@@ -130,7 +133,7 @@ void main_matrix_init()
 void set_rtc_time_on_ble_write(const struct tm *dt)
 {
     // update rtc
-    if (rtc_set_time(dt))
+    if (rtc.setTime(dt))
     {
         // update matrix
         matrix_set_time(dt, true);
@@ -180,14 +183,14 @@ void set_matrix_alarm_on_ble_write(ble_alarm_index_t index, uint8_t hours, uint8
     switch (index)
     {
         case ble_alarm_index_off:
-            alarm_off.set(hours, minutes, active);
-            if (!rtc_memory_set_alarm(rtc_alarm_index_off, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > rtc_memory_set_alarm(rtc_alarm_index_off...)"));
+            alarmOff.set(hours, minutes, active);
+            if (!rtc.saveAlarm(rtc_alarm_index_off, hours, minutes, active))
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > saveAlarm(rtc_alarm_index_off...)"));
             break;
         case ble_alarm_index_on:
-            alarm_on.set(hours, minutes, active);
-            if (!rtc_memory_set_alarm(rtc_alarm_index_on, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > rtc_memory_set_alarm(ble_alarm_index_on...)"));
+            alarmOn.set(hours, minutes, active);
+            if (!rtc.saveAlarm(rtc_alarm_index_on, hours, minutes, active))
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > setAlarm(ble_alarm_index_on...)"));
             break;
         default:
             break;
@@ -200,10 +203,10 @@ void get_matrix_alarm_on_ble_read(ble_alarm_index_t index, uint8_t *hours, uint8
     switch (index)
     {
         case ble_alarm_index_off:
-            alarm_off.get(hours, minutes, active);
+            alarmOff.get(hours, minutes, active);
             break;
         case ble_alarm_index_on:
-            alarm_on.get(hours, minutes, active);
+            alarmOn.get(hours, minutes, active);
             break;
         default:
             break;

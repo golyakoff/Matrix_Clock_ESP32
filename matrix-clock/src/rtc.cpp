@@ -4,19 +4,9 @@
 
 #include "rtc.h"
 
-ErriezDS3231 rtc;
-
 #ifdef DEBUG_RTC_MEMORY
 #include <HardwareSerial.h>
 #endif
-
-struct tm get_build_tm();
-
-#ifdef DEBUG_RTC_MEMORY
-void rtc_memory_alarm_test(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active);
-void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value);
-void rtc_memory_show_test(bool show);
-#endif // DEBUG_RTC_MEMORY
 
 #define RTC_MEMORY_TOTAL_MINUTES_MASK   0b0000011111111111
 #define RTC_MEMORY_IS_ACTIVE_MASK       0b0000100000000000
@@ -24,63 +14,57 @@ void rtc_memory_show_test(bool show);
 #define RTC_MEMORY_IS_AUTO_BRIGHT_MASK          0b00010000
 #define RTC_MEMORY_SHOW_MASK                    0b00000001
 
-bool rtc_init()
+bool RealTimeClock::init(int sdaPin, int sclPin, uint32_t frequency)
 {
     // Setup DS3231 01101000
-    Wire.begin(RTC_SDA, RTC_SCL, RTC_SPEED);
+    Wire.begin(sdaPin, sclPin, frequency);
 
     delay(1000);
 
     bool ok = true;
 
     // Initialize RTC
-    ok &= rtc.begin();
+    ok &= _rtc.begin();
 
     // For DEBUG purposes only!
     // Uncomment if you wish to initialize RTC from build date and time.
-    //const struct tm build_tm = get_build_tm();
-    //ok &= rtc.write(&build_tm);
+    //const struct tm build_tm = getBuildTime();
+    //ok &= _rtc.write(&build_tm);
 
     // Enable 1Hz SQW
-    ok &= rtc.setSquareWave(SquareWave1Hz);
+    ok &= _rtc.setSquareWave(SquareWave1Hz);
 
 #ifdef DEBUG_RTC_MEMORY
     // RTC alarm tests
-    rtc_memory_alarm_test(rtc_alarm_index_off, 23, 59, true);
-    rtc_memory_alarm_test(rtc_alarm_index_off, 4, 12, false);
-    rtc_memory_alarm_test(rtc_alarm_index_off, 12, 00, true);
+    testAlarmSaveLoad(rtc_alarm_index_off, 4, 12, false);
+    testAlarmSaveLoad(rtc_alarm_index_off, 0,  1, true);
 
-    rtc_memory_alarm_test(rtc_alarm_index_on, 8, 35, false);
-    rtc_memory_alarm_test(rtc_alarm_index_on, 11, 59, true);
-    rtc_memory_alarm_test(rtc_alarm_index_on, 21, 22, false);
+    testAlarmSaveLoad(rtc_alarm_index_on, 21, 22, false);
+    testAlarmSaveLoad(rtc_alarm_index_on,  6,  0, true);
 
-    rtc_memory_bright_test(true, 10);
-    rtc_memory_bright_test(false, 15);
-    rtc_memory_bright_test(true, 0);
-
-    rtc_memory_show_test(true);
-    rtc_memory_show_test(false);
+    testBrightnessSaveLoad(true,  10);
+    testBrightnessSaveLoad(false, 15);
 #endif // DEBUG_RTC_MEMORY
 
     return ok;
 }
 
-bool rtc_get_time(struct tm *dt_out)
+bool RealTimeClock::getTime(struct tm *dt_out)
 {
-    return rtc.read(dt_out);
+    return _rtc.read(dt_out);
 }
 
-bool rtc_set_time(const struct tm *dt_new)
+bool RealTimeClock::setTime(const struct tm *dt_new)
 {
-    return rtc.write(dt_new);
+    return _rtc.write(dt_new);
 }
 
-bool rtc_get_temperature(int8_t *temperature, uint8_t *fraction)
+bool RealTimeClock::getTemperature(int8_t *temperature, uint8_t *fraction)
 {
-    return rtc.getTemperature(temperature, fraction);
+    return _rtc.getTemperature(temperature, fraction);
 }
 
-bool rtc_memory_set_alarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
+bool RealTimeClock::saveAlarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
 {
     uint8_t reg_addr;
     switch (index)
@@ -96,11 +80,11 @@ bool rtc_memory_set_alarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minute
             break;
     }
 
-    uint16_t buffer = minutes + 60 * hours + (is_active ? RTC_MEMORY_IS_ACTIVE_MASK : 0);
-    return rtc.writeBuffer(reg_addr, &buffer, sizeof(buffer));
+    uint16_t buffer = minutes + 60 * hours + (active ? RTC_MEMORY_IS_ACTIVE_MASK : 0);
+    return _rtc.writeBuffer(reg_addr, &buffer, sizeof(buffer));
 }
 
-bool rtc_memory_get_alarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *is_active)
+bool RealTimeClock::loadAlarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *active)
 {
     uint8_t reg_addr;
     switch (index)
@@ -117,29 +101,29 @@ bool rtc_memory_get_alarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minu
     }
 
     uint16_t buffer;
-    if (!rtc.readBuffer(reg_addr, &buffer, sizeof(buffer)))
+    if (!_rtc.readBuffer(reg_addr, &buffer, sizeof(buffer)))
         return false;
 
-    *is_active = (buffer & RTC_MEMORY_IS_ACTIVE_MASK) > 0;
+    *active = (buffer & RTC_MEMORY_IS_ACTIVE_MASK) > 0;
     *minutes = (buffer & RTC_MEMORY_TOTAL_MINUTES_MASK) % 60;
     *hours = (buffer & RTC_MEMORY_TOTAL_MINUTES_MASK) / 60;
 
     return true;
 }
 
-bool rtc_memory_set_bright(bool use_auto_brightness, uint8_t manual_brightness_value)
+bool RealTimeClock::saveBrightness(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
     uint8_t buffer = 
         (manual_brightness_value & RTC_MEMORY_MANUAL_BRIGHT_MASK) +
         (use_auto_brightness ? RTC_MEMORY_IS_AUTO_BRIGHT_MASK : 0);
 
-    return rtc.writeBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer));
+    return _rtc.writeBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer));
 }
 
-bool rtc_memory_get_bright(bool *use_auto_brightness, uint8_t *manual_brightness_value)
+bool RealTimeClock::loadBrightness(bool *use_auto_brightness, uint8_t *manual_brightness_value)
 {
     uint8_t buffer;
-    if (!rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
+    if (!_rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
         return false;
 
     *use_auto_brightness = (buffer & RTC_MEMORY_IS_AUTO_BRIGHT_MASK) > 0;
@@ -148,24 +132,7 @@ bool rtc_memory_get_bright(bool *use_auto_brightness, uint8_t *manual_brightness
     return true;
 }
 
-bool rtc_memory_set_show(bool show)
-{
-    uint8_t buffer = (show ? RTC_MEMORY_SHOW_MASK : 0);
-    return rtc.writeBuffer(DS3231_REG_ALARM2_DD, &buffer, sizeof(buffer));
-}
-
-bool rtc_memory_get_show(bool *show)
-{
-    uint8_t buffer;
-    if (!rtc.readBuffer(DS3231_REG_ALARM2_DD, &buffer, sizeof(buffer)))
-        return false;
-
-    *show = (buffer & RTC_MEMORY_SHOW_MASK) > 0;
-
-    return true;
-}
-
-struct tm get_build_tm()
+struct tm RealTimeClock::getBuildTime()
 {
     char s_month[5];
     int year;
@@ -187,40 +154,40 @@ struct tm get_build_tm()
 
 #ifdef DEBUG_RTC_MEMORY
 // RTC init with debug messages
-void rtc_memory_alarm_test(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool is_active)
+void RealTimeClock::testAlarmSaveLoad(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
 {
-    Serial.printf("RTC MEMORY alarm %d test: write and read alarm time %02d:%02d, is_active:%d ", index, hours, minutes, is_active);
+    Serial.printf("RTC MEMORY alarm %d test: write and read alarm time %02d:%02d, active:%d ", index, hours, minutes, active);
 
     uint8_t actual_hours = 0;
     uint8_t actual_minutes = 0;
     bool actual_is_active = false;
 
-    if(!rtc_memory_set_alarm(index, hours, minutes, is_active))
+    if(!saveAlarm(index, hours, minutes, active))
     {
-        Serial.println(F("-> Error: rtc_memory_set_alarm()!"));
+        Serial.println(F("-> Error: saveAlarm()!"));
         for(;;) { delay(5000); }
     }
 
-    if(!rtc_memory_get_alarm(index, &actual_hours, &actual_minutes, &actual_is_active))
+    if(!loadAlarm(index, &actual_hours, &actual_minutes, &actual_is_active))
     {
-        Serial.println(F("-> Error: rtc_memory_get_alarm()"));
+        Serial.println(F("-> Error: loadAlarm()"));
         for(;;) { delay(5000); }
     }
 
-    if (hours != actual_hours || minutes != actual_minutes || is_active != actual_is_active)
+    if (hours != actual_hours || minutes != actual_minutes || active != actual_is_active)
     {
         Serial.printf(
-            "->Error: actual hours = %d, actial minutes = %d, actual is_active = %d \n",
+            "->Error: actual hours = %d, actial minutes = %d, actual active = %d \n",
             actual_hours,
             actual_minutes,
-            is_active);
+            active);
         for(;;) { delay(5000); }
     }
 
     Serial.println(F("OK"));
 }
 
-void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_value)
+void RealTimeClock::testBrightnessSaveLoad(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
     Serial.printf(
         "RTC MEMORY bright test: use_auto_brightness = %d, manual_brightness_value = %d ",
@@ -230,15 +197,15 @@ void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_
     bool actual_use_auto_brightness = false;
     uint8_t actual_manual_brightness_value = 0;
 
-    if(!rtc_memory_set_bright(use_auto_brightness, manual_brightness_value))
+    if(!saveBrightness(use_auto_brightness, manual_brightness_value))
     {
-        Serial.println(F("-> Error: rtc_memory_set_bright()!"));
+        Serial.println(F("-> Error: saveBrightness()!"));
         for(;;) { delay(5000); }
     }
 
-    if(!rtc_memory_get_bright(&actual_use_auto_brightness, &actual_manual_brightness_value))
+    if(!loadBrightness(&actual_use_auto_brightness, &actual_manual_brightness_value))
     {
-        Serial.println(F("-> Error: rtc_memory_get_alarm()"));
+        Serial.println(F("-> Error: loadAlarm()"));
         for(;;) { delay(5000); }
     }
 
@@ -254,30 +221,5 @@ void rtc_memory_bright_test(bool use_auto_brightness, uint8_t manual_brightness_
 
     Serial.println(F("OK"));
 }
-void rtc_memory_show_test(bool show)
-{
-    Serial.printf("RTC MEMORY show test: show = %d ", show);
 
-    bool actual_show = false;
-
-    if(!rtc_memory_set_show(show))
-    {
-        Serial.println(F("-> Error: rtc_memory_set_show()!"));
-        for(;;) { delay(5000); }
-    }
-
-    if(!rtc_memory_get_show(&actual_show))
-    {
-        Serial.println(F("-> Error: rtc_memory_get_show()"));
-        for(;;) { delay(5000); }
-    }
-
-    if (show != actual_show)
-    {
-        Serial.printf("->Error: actual show = %d \n", show);
-        for(;;) { delay(5000); }
-    }
-
-    Serial.println(F("OK"));
-}
 #endif // DEBUG_RTC_MEMORY
