@@ -332,7 +332,7 @@ void ble_init(
     start_advertising(pServer);
 }
 
-void ble_update_rtc_time_cb(struct tm *dt)
+void ble_update_rtc_time(struct tm *dt)
 {
     if (_device_connected && times_are_different(dt, &_last_update_dt)) {
         memcpy(&_last_update_dt, dt, sizeof(struct tm));
@@ -356,7 +356,7 @@ void ble_update_rtc_time_cb(struct tm *dt)
     }
 }
 
-void ble_update_matrix_show_cb(const bool show)
+void ble_update_matrix_show(const bool show)
 {
     uint8_t value[1] = { (uint8_t)(show ? 0x01 : 0x00) };
     _mctnc_char.setValue(value, sizeof(value));

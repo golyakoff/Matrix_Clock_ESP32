@@ -60,7 +60,7 @@ void loop()
         matrix_get_time(&_matrix_dt);
         if (times_are_different(&_matrix_dt, &_matrix_dt_prev))
         {
-            ble_update_rtc_time_cb(&_matrix_dt);
+            ble_update_rtc_time(&_matrix_dt);
             memcpy(&_matrix_dt_prev, &_matrix_dt, sizeof(struct tm));
             alarmOn.tick(&_matrix_dt);
             alarmOff.tick(&_matrix_dt);
@@ -120,6 +120,13 @@ void main_rtc_init()
     alarmOn.set(hours, minutes, active);
     rtc.loadAlarm(rtc_alarm_index_off, &hours, &minutes, &active);
     alarmOff.set(hours, minutes, active);
+
+    // Initialize runtime matrix brightness settings from RTC
+    bool use_auto_brightness;
+    uint8_t manual_brightness_value;
+    rtc.loadBrightness(&use_auto_brightness, &manual_brightness_value);
+    matrix_set_auto_brightness(use_auto_brightness);
+    matrix_set_manual_brightness(manual_brightness_value);
 }
 
 // Matrix init with debug message
@@ -159,6 +166,9 @@ void set_matrix_auto_brightness_on_ble_write(bool auto_brightness)
 {
     matrix_set_auto_brightness(auto_brightness);
     Serial.printf("-> Matrix update auto brightness state: %d\n", auto_brightness);
+
+    if (!rtc.saveBrightness(auto_brightness, matrix_get_manual_brightness()))
+        Serial.println(F("Error: set_matrix_auto_brightness_on_ble_write(...) > rtc.saveBrightness(...)"));
 }
 
 bool get_matrix_auto_brightness_on_ble_read()
@@ -170,6 +180,9 @@ void set_matrix_manual_brightness_on_ble_write(uint8_t manual_brightness)
 {
     matrix_set_manual_brightness(manual_brightness);
     Serial.printf("-> Matrix update manual brightness value: %d\n", manual_brightness);
+
+    if (!rtc.saveBrightness(matrix_get_auto_brightness(), manual_brightness))
+        Serial.println(F("Error: set_matrix_manual_brightness_on_ble_write(...) > rtc.saveBrightness(...)"));
 }
 
 uint8_t get_matrix_manual_brightness_on_ble_read()
@@ -185,12 +198,12 @@ void set_matrix_alarm_on_ble_write(ble_alarm_index_t index, uint8_t hours, uint8
         case ble_alarm_index_off:
             alarmOff.set(hours, minutes, active);
             if (!rtc.saveAlarm(rtc_alarm_index_off, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > saveAlarm(rtc_alarm_index_off...)"));
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > rtc.saveAlarm(rtc_alarm_index_off...)"));
             break;
         case ble_alarm_index_on:
             alarmOn.set(hours, minutes, active);
             if (!rtc.saveAlarm(rtc_alarm_index_on, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > setAlarm(ble_alarm_index_on...)"));
+                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > rtc.setAlarm(ble_alarm_index_on...)"));
             break;
         default:
             break;
@@ -231,11 +244,11 @@ void main_ble_init()
  void alarm_off_callback(const uint8_t hours, const uint8_t minutes)
  {
     matrix_set_show(false);
-    ble_update_matrix_show_cb(false);
+    ble_update_matrix_show(false);
  }
 
  void alarm_on_callback(const uint8_t hours, const uint8_t minutes)
  {
     matrix_set_show(true);
-    ble_update_matrix_show_cb(true);
+    ble_update_matrix_show(true);
  }

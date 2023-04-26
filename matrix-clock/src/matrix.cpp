@@ -17,7 +17,7 @@ static uint8_t tim_100hz;
 static uint8_t _brightness = INIT_BRIGHTNESS;
 static uint8_t _brightness_last = 0;
 
-static uint8_t _manual_brightness = INIT_BRIGHTNESS;
+static uint8_t _manual_brightness_nibble = INIT_BRIGHTNESS;
 static bool _use_auto_brightness = false;
 static bool _show = true;
 
@@ -29,6 +29,19 @@ static char _matrix_time_buffer[6]; // the buffer of the string containing time,
 static struct tm _dt;               // time to display on the matrix
 static bool _force_update;          // if "true", there will be performed forced update of the time
 
+/**
+ * @brief Used to convert nibble (4-bits unsigned integer) value of brightness
+ * (from RTC and BLE, for example) to the byte (8-bits unsigned integer) value
+ * used in matrix, see call of display.setBrightness().
+ */
+static const uint8_t _matrix_brighness_nibbles[] =
+{
+    0x07, 0x10, 0x20, 0x30,
+    0x40, 0x50, 0x60, 0x70,
+    0x80, 0x90, 0xA0, 0xB0,
+    0xC0, 0xD0, 0xE0, 0xFF
+};
+
 #pragma region Private methods declaration
 
 void handle_colon_after_animation();
@@ -37,6 +50,7 @@ void animation_handler();
 void draw_intro(int x, int y);
 void set_matrix_time();
 void check_brightness_tick();
+uint8_t brightness_nibble_to_byte(uint8_t brightness_nibble);
 
 #pragma endregion // Private methods declaration
 
@@ -91,8 +105,8 @@ void matrix_init(struct tm *init_dt)
 void IRAM_ATTR matrix_1hz_isr_loop()
 {
     portENTER_CRITICAL_ISR(&timerMux);
-    _dt.tm_sec += 1; // add a second
-    _show_colon = !_show_colon;      // inverse colon
+    _dt.tm_sec += 1;            // add a second
+    _show_colon = !_show_colon; // inverse colon
     portEXIT_CRITICAL_ISR(&timerMux);
 }
 
@@ -102,7 +116,7 @@ void matrix_100hz_loop()
     if (_dt.tm_sec >= 60 || _force_update)
     {
         set_matrix_time();
-        
+
         if (_force_update)
             _force_update = false;
     }
@@ -125,7 +139,7 @@ void matrix_100hz_loop()
 void matrix_set_time(const struct tm *new_dt, bool force_update_display)
 {
     memcpy(&_dt, new_dt, sizeof(struct tm));
-    
+
     if (force_update_display)
         _force_update = true;
 }
@@ -155,14 +169,14 @@ bool matrix_get_auto_brightness()
     return _use_auto_brightness;
 }
 
-void matrix_set_manual_brightness(uint8_t manual_brightness)
+void matrix_set_manual_brightness(uint8_t manual_brightness_nibble)
 {
-    _manual_brightness = manual_brightness;
+    _manual_brightness_nibble = manual_brightness_nibble;
 }
 
-uint8_t matrix_get_manual_brightness( )
+uint8_t matrix_get_manual_brightness()
 {
-    return _manual_brightness;
+    return _manual_brightness_nibble;
 }
 
 #pragma endregion // Public methods definition
@@ -172,15 +186,15 @@ uint8_t matrix_get_manual_brightness( )
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
 {
-    //AGOXXX portENTER_CRITICAL_ISR(&timerMux);
+    // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
     display.display(10);
-    //AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
+    // AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 // This method is for controlling the tetris library draw calls
 void animation_handler()
 {
-    //AGOXXX portENTER_CRITICAL_ISR(&timerMux);
+    // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
 
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
@@ -197,7 +211,7 @@ void animation_handler()
         }
     }
 
-    //AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
+    // AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void draw_intro(int x = 0, int y = 0)
@@ -257,12 +271,12 @@ void check_brightness_tick()
         }
         else
         {
-            _brightness = _manual_brightness;
+            _brightness = brightness_nibble_to_byte(_manual_brightness_nibble);
         }
     }
     else
     {
-       _brightness = 0;
+        _brightness = 0;
     }
 
     if (_brightness != _brightness_last)
@@ -271,6 +285,11 @@ void check_brightness_tick()
         Serial.printf("Brightness updated with value %d\n", _brightness);
         _brightness_last = _brightness;
     }
+}
+
+uint8_t brightness_nibble_to_byte(uint8_t brightness_nibble)
+{
+    return _matrix_brighness_nibbles[brightness_nibble & 15];
 }
 
 #pragma endregion // Private methods definition

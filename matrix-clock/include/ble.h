@@ -32,34 +32,80 @@
 // Control point to setup manual brightness adjustment value
 #define MC_MANUAL_BRIGHT_VAL_CHAR_UUID      "117ED80D-AF6E-4E4D-B900-48F68725A7D3" // M Read, Write
 
+/**
+ * @brief Type of a function for setting a new time to the device when it came from BLE.
+ */
 typedef void (*ble_set_time_on_ble_write_t)(const struct tm *dt);
 
+/**
+ * @brief Type of a function for setting "show" state to the device when it came from BLE.
+ */
 typedef void (*ble_set_show_on_ble_write_t)(const bool show);
+
+/**
+ * @brief Type of a function for getting "show" state from the device when it requested by BLE.
+ */
 typedef bool (*ble_get_show_on_ble_read_t)();
 
+/**
+ * @brief Type of a function for setting "auto brightness" state to the device when it came from BLE.
+ */
 typedef void (*ble_set_auto_bright_en_on_ble_write_t)(const bool show);
+
+/**
+ * @brief Type of a function for getting "auto brightness" state from the device when it requested by BLE.
+ */
 typedef bool (*ble_get_auto_bright_en_on_ble_read_t)();
 
+/**
+ * @brief Type of a function for setting "manual brightness" value to the device when it came from BLE.
+ */
 typedef void (*ble_set_manual_bright_val_on_ble_write_t)(const uint8_t manual_brightness);
+
+/**
+ * @brief Type of a function for getting "manual brightness" value from the device when it requested by BLE.
+ */
 typedef uint8_t (*ble_get_manual_bright_val_on_ble_read_t)();
 
+/**
+ * @brief Alarm index used to choose the alarm we work with in the methods below: On/Off.
+ */
 typedef enum {
     ble_alarm_index_on = 1,
     ble_alarm_index_off = 2
 } ble_alarm_index_t;
 
+/**
+ * @brief Type of a function for setting 1 of 2 alarms' settings to the device when it came from BLE.
+ */
 typedef void (*ble_set_alarm_on_ble_write_t)(
     const ble_alarm_index_t index,
     const uint8_t hours,
     const uint8_t minutes,
     const bool active);
 
+/**
+ * @brief Type of a function for getting 1 of 2 alarms' settings from the device when it requested by BLE.
+ */
 typedef void (*ble_get_alarm_on_ble_read_t)(
     ble_alarm_index_t index,
     uint8_t *hours,
     uint8_t *minutes,
     bool *active);
 
+/**
+ * @brief Initializes the BLE module settings.
+ * 
+ * @param ble_set_time_on_ble_write_cb Callback function for setting a new time to the device when it came from BLE.
+ * @param ble_set_show_on_ble_write_cb Callback function for setting "show" state to the device when it came from BLE.
+ * @param ble_get_show_on_ble_read_cb Callback function for getting "show" state from the device when it requested by BLE.
+ * @param ble_set_auto_bright_en_on_ble_write_cb Callback function for setting "auto brightness" state to the device when it came from BLE.
+ * @param ble_get_auto_bright_en_on_ble_read_cb Callback function for getting "auto brightness" state from the device when it requested by BLE.
+ * @param ble_set_manual_bright_val_on_ble_write_cb Callback function for setting "manual brightness" value to the device when it came from BLE.
+ * @param ble_get_manual_bright_val_on_ble_read_cb Callback function for getting "manual brightness" value from the device when it requested by BLE.
+ * @param ble_set_alarm_on_ble_write_cb Callback function for setting 1 of 2 alarms' settings to the device when it came from BLE.
+ * @param ble_get_alarm_on_ble_read_cb Callback function for getting 1 of 2 alarms' settings from the device when it requested by BLE.
+ */
 void ble_init(
     ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
     ble_set_show_on_ble_write_t ble_set_show_on_ble_write_cb,
@@ -70,8 +116,24 @@ void ble_init(
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
     ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb);
-void ble_update_rtc_time_cb(struct tm *dt);
-void ble_update_matrix_show_cb(const bool show);
+
+/**
+ * @brief A method that is called when time updated outside of the BLE module
+ *        and we have to reflect this changes in BLE module (each second).
+ *        It is used to push notification to the connected BLE device about the time update.
+ * 
+ * @param dt a new time structure.
+ */
+void ble_update_rtc_time(struct tm *dt);
+
+/**
+ * @brief A method that is called when the matrix "show" state updated outside of the BLE module
+ *        and we have to reflect this changes in BLE module (on alarm fire, for example).
+ *        It is used to push notification to the connected BLE device about the matrix "show" state update.
+ * 
+ * @param show The new value of the matrix "show" state.
+ */
+void ble_update_matrix_show(const bool show);
 
 #endif // __BLE_H__
 
