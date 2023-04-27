@@ -16,11 +16,15 @@
 #include "matrix.h"
 #include "ble.h"
 #include "alarm.h"
+#include "touch_sensor.h"
 
 #define RTC_SPEED   (400000U)
 #define RTC_SCL     (26U)
 #define RTC_SDA     (27U)
 #define RTC_SQW     (35U)
+
+#define TOUCH_PIN   (12U)
+#define TOUCH_THRESHOLD (40U)
 
 static unsigned long _10ms_loop_due = 0;
 
@@ -36,9 +40,14 @@ static Alarm alarmOn = Alarm(&alarm_on_callback);
 
 RealTimeClock rtc;
 
+IRAM_ATTR void touch_callback_isr();
+static volatile uint32_t _touch_last_interrupt_time = 0;
+static const uint32_t _touch_debounce_delay = 100;
+static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUCH_THRESHOLD);
+
 void main_rtc_init();
-void main_matrix_init();
 void main_ble_init();
+void main_matrix_init();
 
 void setup()
 {
@@ -47,7 +56,7 @@ void setup()
     main_rtc_init();
     main_ble_init();
     delay(500);
-    main_matrix_init();
+    main_matrix_init();    
 }
 
 void loop()
@@ -55,6 +64,8 @@ void loop()
     unsigned long now = millis();
     if (now > _10ms_loop_due) {
         matrix_100hz_loop();
+        touch_100hz_loop_tick();
+
         _10ms_loop_due = now + 10;
 
         matrix_get_time(&_matrix_dt);
@@ -252,3 +263,16 @@ void main_ble_init()
     matrix_set_show(true);
     ble_update_matrix_show(true);
  }
+
+IRAM_ATTR void touch_callback_isr()
+{
+    uint32_t current_millis = millis();
+    if (current_millis - _touch_last_interrupt_time < _touch_debounce_delay)
+        return;
+
+    bool new_matrix_show = !matrix_get_show();
+    matrix_set_show(new_matrix_show);
+    ble_update_matrix_show(new_matrix_show);
+
+    _touch_last_interrupt_time = current_millis;
+}
