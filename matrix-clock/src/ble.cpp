@@ -25,13 +25,15 @@ static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteri
 static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
+static BLECharacteristic _mctt_chat(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
+static BLECharacteristic _mctao_chat(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 // Variables
 static bool _device_connected = false;
 
 static struct tm _last_update_dt;
 
-static char _mcts_char_buffer[20];       // string time buffer for covertion
+static char _mcts_char_buffer[20];       // string time buffer for conversion
 static std::string _mcts_char_value;     // string time
 static uint32_t _mct_char_value;         // epoch time
 
@@ -41,12 +43,19 @@ static ble_set_time_on_ble_write_t _set_time_on_ble_write = nullptr;
 
 static ble_set_show_on_ble_write_t _set_show_on_ble_write = nullptr;
 static ble_get_show_on_ble_read_t _get_show_on_ble_read = nullptr;
+
 static ble_get_auto_bright_en_on_ble_read_t _get_auto_bright_en_on_ble_read = nullptr;
 static ble_set_auto_bright_en_on_ble_write_t _set_auto_bright_en_on_ble_write = nullptr;
+
 static ble_get_manual_bright_val_on_ble_read_t _get_manual_bright_val_on_ble_read = nullptr;
 static ble_set_manual_bright_val_on_ble_write_t _set_manual_bright_val_on_ble_write = nullptr;
+
 static ble_set_alarm_on_ble_write_t _set_alarm_on_ble_write = nullptr;
 static ble_get_alarm_on_ble_read_t _get_alarm_on_ble_read = nullptr;
+
+static ble_get_rtc_temperature_ble_read_t _get_rtc_temperature_ble_read = nullptr;
+static ble_get_rtc_aging_offset_ble_read_t _get_rtc_aging_offset_ble_read = nullptr;
+static ble_set_rtc_aging_offset_ble_write_t _set_rtc_aging_offset_ble_write = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public BLEServerCallbacks
@@ -183,6 +192,26 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             Serial.println(F("OK"));
             return;
         }
+
+        if (pCharacteristic->getUUID().equals(_mctao_chat.getUUID()))
+        {
+            if (_set_rtc_aging_offset_ble_write == nullptr)
+            {
+                Serial.println(F("Error: callback _set_rtc_aging_offset_ble_write is nullptr."));
+                return;
+            }
+
+            Serial.printf("BLE::onWrite for RTC aging offset: Byte: %02x", param->write.value[0]);
+            
+            int8_t result = (int8_t)param->write.value[0];
+            Serial.printf("BLE::onWrite for RTC aging offset: = %d", result);
+            
+            Serial.println(F("Calling callback _set_rtc_aging_offset_ble_write()... "));
+            _set_rtc_aging_offset_ble_write(result);
+            
+            Serial.println(F("OK"));
+            return;
+        }
     }
 
     void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param)
@@ -227,6 +256,22 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             pCharacteristic->setValue(data_val);
             return;
         }
+
+        if(pCharacteristic->getUUID().equals(_mctt_chat.getUUID()))
+        {
+            int8_t temperature = _get_rtc_temperature_ble_read();
+            uint8_t data_val[1] = { temperature };
+            pCharacteristic->setValue(data_val, sizeof(data_val));
+            return;
+        }
+
+        if(pCharacteristic->getUUID().equals(_mctao_chat.getUUID()))
+        {
+            int8_t aging_offset = _get_rtc_aging_offset_ble_read();
+            uint8_t data_val[1] = { aging_offset };
+            pCharacteristic->setValue(data_val, sizeof(data_val));
+            return;
+        }
     }
 };
 MyCharacteristicCallbacks _myCharacteristicCallbacks;
@@ -240,7 +285,10 @@ void ble_init(
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
-    ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb)
+    ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb,
+    ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,
+    ble_get_rtc_aging_offset_ble_read_t ble_get_rtc_aging_offset_ble_read_cb,
+    ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb)
 {
     // init update callbacks
     _set_time_on_ble_write = ble_set_time_on_ble_write_cb;
@@ -257,6 +305,10 @@ void ble_init(
     _set_alarm_on_ble_write = ble_set_alarm_on_ble_write_cb;
     _get_alarm_on_ble_read = ble_get_alarm_on_ble_read_cb;
 
+    _get_rtc_temperature_ble_read = ble_get_rtc_temperature_ble_read_cb;
+    _get_rtc_aging_offset_ble_read = ble_get_rtc_aging_offset_ble_read_cb;
+    _set_rtc_aging_offset_ble_write = ble_set_rtc_aging_offset_ble_write_cb;
+
     // reset last updated date and time
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
 
@@ -272,7 +324,7 @@ void ble_init(
     Serial.println(F("OK"));
 
     Serial.print(F("Create Primary Service... "));
-    BLEService *bleService = pServer->createService(MC_SERVICE_UUID);
+    BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 30U, 0U);
     Serial.print(F("OK: "));
     Serial.println(bleService->toString().c_str());
 
@@ -311,17 +363,33 @@ void ble_init(
     Serial.print(F("OK: "));
     Serial.println(_mctnc_char.toString().c_str());
 
-     Serial.print(F("Add MatrixClock Turn On Auto Brigntness char... "));
+    // Add MatrixClock Turn On Auto Brightness Control characteristic
+    Serial.print(F("Add MatrixClock Turn On Auto Brightness char... "));
     bleService->addCharacteristic(&_mcabe_char);
     _mcabe_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
     Serial.println(_mcabe_char.toString().c_str());
 
-    Serial.print(F("Add MatrixClock Manual Brigntness Value char... "));
+    // Add MatrixClock Manual Brightness Value Control characteristic
+    Serial.print(F("Add MatrixClock Manual Brightness Value char... "));
     bleService->addCharacteristic(&_mcmbv_char);
     _mcmbv_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
     Serial.println(_mcmbv_char.toString().c_str());
+
+    // Add MatrixClock RTC Temperature Value characteristic
+    Serial.print(F("Add MatrixClock RTC Temperature Value char... "));
+    bleService->addCharacteristic(&_mctt_chat);
+    _mctt_chat.setCallbacks(&_myCharacteristicCallbacks);
+    Serial.print(F("OK: "));
+    Serial.println(_mctt_chat.toString().c_str());
+
+    // Add MatrixClock RTC Aging Offset Value characteristic
+    Serial.print(F("Add MatrixClock RTC Aging Offset Value char... "));
+    bleService->addCharacteristic(&_mctao_chat);
+    _mctao_chat.setCallbacks(&_myCharacteristicCallbacks);
+    Serial.print(F("OK: "));
+    Serial.println(_mctao_chat.toString().c_str());
 
     // Start the service
     Serial.print(F("bleService->start()... "));

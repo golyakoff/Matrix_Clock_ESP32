@@ -69,12 +69,12 @@ class TetrisMatrixDraw
 
         static const uint16_t tetrisRED = 0xF800;
         static const uint16_t tetrisGREEN = 0x07E0;
-        static const uint16_t tetrisBLUE = 0x325F;
+        static const uint16_t tetrisBLUE = 0x023F;
         static const uint16_t tetrisWHITE = 0xFFFF;
-        static const uint16_t tetrisYELLOW = 0xFFE0;
-        static const uint16_t tetrisCYAN = 0x07FF;
+        static const uint16_t tetrisYELLOW = 0xFF60;
+        static const uint16_t tetrisCYAN = 0x07FB;
         static const uint16_t tetrisMAGENTA = 0xF81F;
-        static const uint16_t tetrisORANGE = 0xFB00;
+        static const uint16_t tetrisORANGE = 0xFB60;
         static const uint16_t tetrisBLACK = 0x0000;
         uint16_t tetrisColors[9] = {tetrisRED, tetrisGREEN, tetrisBLUE, tetrisWHITE, tetrisYELLOW, tetrisCYAN, tetrisMAGENTA, tetrisORANGE, tetrisBLACK};
 

@@ -59,6 +59,16 @@ bool RealTimeClock::setTime(const struct tm *dt_new)
     return _rtc.write(dt_new);
 }
 
+int8_t RealTimeClock::getAgingOffset()
+{
+    return _rtc.getAgingOffset();
+}
+
+bool RealTimeClock::setAgingOffset(int8_t agingOffset)
+{
+    return _rtc.setAgingOffset(agingOffset);
+}
+
 bool RealTimeClock::getTemperature(int8_t *temperature, uint8_t *fraction)
 {
     return _rtc.getTemperature(temperature, fraction);
@@ -177,7 +187,7 @@ void RealTimeClock::testAlarmSaveLoad(rtc_alarm_index_t index, uint8_t hours, ui
     if (hours != actual_hours || minutes != actual_minutes || active != actual_is_active)
     {
         Serial.printf(
-            "->Error: actual hours = %d, actial minutes = %d, actual active = %d \n",
+            "->Error: actual hours = %d, actual minutes = %d, actual active = %d \n",
             actual_hours,
             actual_minutes,
             active);
@@ -212,7 +222,7 @@ void RealTimeClock::testBrightnessSaveLoad(bool use_auto_brightness, uint8_t man
     if (use_auto_brightness != actual_use_auto_brightness || manual_brightness_value != actual_manual_brightness_value)
     {
         Serial.printf(
-            "->Error: actual use_auto_brightness = %d, actial manual_brightness_value = %d \n",
+            "->Error: actual use_auto_brightness = %d, actual manual_brightness_value = %d \n",
             actual_use_auto_brightness,
             actual_manual_brightness_value);
 

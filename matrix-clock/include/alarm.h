@@ -24,7 +24,7 @@ class Alarm
         Alarm(alarmCallback_t callback);
 
         /**
-         * @brief Sets the hours, minutes, and state (active/incative) of the alaram.
+         * @brief Sets the hours, minutes, and state (active/inactive) of the alarm.
          * 
          * @param hours is the integer hours value (0-23).
          * @param minutes is the integer minutes value (0-59).
@@ -33,7 +33,7 @@ class Alarm
         void set(const uint8_t hours, const uint8_t minutes, const bool active);
 
         /**
-         * @brief Gets the actual alaram settings of the alarm: hours, minutes, and state.
+         * @brief Gets the actual alarm settings of the alarm: hours, minutes, and state.
          * 
          * @param hours the pointer to the memory for storing the integer hours value (0-23).
          * @param minutes the pointer to the memory for storing the integer minutes value (0-59).
@@ -73,9 +73,9 @@ class Alarm
         alarmCallback_t _callback;
 
         /**
-         * @brief As we have ability to call the tick() method more ofthen than once a second,
+         * @brief As we have ability to call the tick() method more often than once a second,
          *        and have to call the callback() only the first time when time is matches,
-         *        then we have to store the flag indicating that we already fired the alaram
+         *        then we have to store the flag indicating that we already fired the alarm
          *        for the first time. The next times for the same hours and minutes it will be skipped.
          *        The flag will be automatically reset after the first time tick() call with the
          *        different hours and minutes in the passed time structure.

@@ -38,7 +38,7 @@
 //
 // 0Dh:     * All 8 bits:  Reserved for future.
 //
-// Uncomment the line below for include memory "unit "
+// Uncomment the line below for timer initialization
 //#define DEBUG_RTC_MEMORY
 
 /**
@@ -61,9 +61,37 @@ class RealTimeClock
          * @param sdaPin I2C Data GPIO
          * @param sclPin I2C Clock GPIO 
          * @param frequency I2C frequency
-         * @return true if initialization sucessfully done, otherwise false
+         * @return true if initialization successfully done, otherwise false
          */
         bool init(int sdaPin, int sclPin, uint32_t frequency);
+
+        /**
+         * @brief Get crystal aging offset value.
+         * 
+         * It provides an 8-bit code to add to the codes in the capacitance array 
+         * registers. The code is encoded in two’s complement. One LSB represents one small 
+         * capacitor to be switched in or out of the capacitance array at the crystal pins.
+         * The offset register is added to the capacitance array register under the following 
+         * conditions: during a normal temperature conversion, if the temperature changes from 
+         * the previous conversion, or during a manual user conversion (setting the CONV bit).
+         * 
+         * @return 8-bit code of aging offset register.
+         */
+        int8_t getAgingOffset();
+
+        /**
+         * @brief Set the Aging Offset value
+         * 
+         * The aging offset register capacitance value is added or subtracted from the
+         * capacitance value that the device calculates for each temperature compensation.
+         * 
+         * Positive aging values add capacitance to the array,slowing the oscillator frequency.
+         * Negative values remove capacitance from the array, increasing the oscillator frequency.
+         * 
+         * @param agingOffset
+         * @return true if saving successfully done, otherwise false
+         */
+        bool setAgingOffset(int8_t agingOffset);
 
         /**
          * @brief Get the internal temperature of the RTC chip (Celsius degrees)
@@ -96,7 +124,7 @@ class RealTimeClock
          * @param index On/Off RTC index
          * @param hours the integer value of hours (0-23)
          * @param minutes the integer value of minutes (0-59)
-         * @param active the state of saved alaram (active/inactive)
+         * @param active the state of saved alarm (active/inactive)
          * @return true if saving successfully done, otherwise false
          */
         bool saveAlarm(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active);
@@ -107,7 +135,7 @@ class RealTimeClock
          * @param index On/Off RTC index
          * @param hours the pointer to the memory for storing the integer value of hours (0-23)
          * @param minutes  the pointer to the memory for storing the integer value of minutes (0-59)
-         * @param active  the pointer to the memory for storing the state of saved alaram (active/inactive)
+         * @param active  the pointer to the memory for storing the state of saved alarm (active/inactive)
          * @return true if loading successfully done, otherwise false
          */
         bool loadAlarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *active);

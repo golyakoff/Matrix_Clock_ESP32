@@ -14,13 +14,14 @@
 /**
  * @brief Pixel order customizable for Matrix (from "PxMatrix.h")
  */
-#define COLOR_ORDER RRBBGG
+//#define COLOR_ORDER RRBBGG
+#define COLOR_ORDER RRGGBB
 
 /**
- * @brief Initial honest brigtness for the welcome and "powered by" screens.
+ * @brief Initial honest brightness for the welcome and "powered by" screens.
  *        Required range: 7..255.
  */
-#define INIT_BRIGHTNESS   (64U) 
+#define INIT_BRIGHTNESS (255U)
 
 /**
  * @brief If this is set to false, the number will only change if the value behind it changes
@@ -31,19 +32,19 @@
 #define FORCE_UPDATE_ALL_DIGITS true
 
 /**
- * @brief Varistor GPIO pin used for reading light resistor's value throug ADC for brightness adjustment.
+ * @brief Light-dependent resistor GPIO pin (used for brightness adjustment).
  */
-#define VARISTOR_PIN        (34)
+#define LDR_PIN (34U)
 
 /**
  * @brief The the max value that can be read from ADC.
  *        For 8-bit ADC it will be 1023.
  *        For 10-bit ADC it will be 4095
  */
-#define ADC_SCALE         (4095)
+#define ADC_SCALE (4095)
 
-#define PWM_MIN_VALUE       (40)
-#define PWM_MAX_VALUE      (220)
+#define PWM_MIN_VALUE  (40)
+#define PWM_MAX_VALUE (220)
 
 /**
  * @brief Initializes the matrix instance with the initial time structure.
@@ -62,7 +63,7 @@ void matrix_1hz_isr_loop();
 
 /**
  * @brief This method should be called approximately 100 times per second.
- *        It checkes whether the minutes has part has changed? 
+ *        It checks whether the minutes has part has changed? 
  *        If yes it starts the time update animation on the matrix.
  */
 void matrix_100hz_loop();
@@ -86,13 +87,13 @@ void matrix_get_time(struct tm *dt_out);
 /**
  * @brief Sets the value indicating whether we have to show or hide the drawing of the time on the matrix.
  *        Used when On/Off command comes from BLE.
- * @param show the value indicating whether we have to switch martix On (true) or Off (false)?
+ * @param show the value indicating whether we have to switch matrix On (true) or Off (false)?
  */
 void matrix_set_show(bool show);
 
 /**
  * @brief Gets the value indicating whether we are showing or hiding now the drawing of the time on the matrix.
- *        Used when the actual On/Off state is reqiested by BLE.
+ *        Used when the actual On/Off state is requested by BLE.
  * 
  * @return true if the matrix is in "On" state, otherwise false.
  */
@@ -110,7 +111,7 @@ void matrix_set_auto_brightness(bool use_auto_brightness);
 /**
  * @brief Gets the value indicating whether we have to use auto-adjusted vale of the brightness
  *        based on the ADC value came from photo resistor or not?
- *        Used when the actual state of auto adjustment is reqiested by BLE.
+ *        Used when the actual state of auto adjustment is requested by BLE.
  * 
  * @return true if auto adjustment is used, otherwise false
  */
@@ -122,13 +123,13 @@ bool matrix_get_auto_brightness();
  *        Method used when the updated manual brightness value comes from BLE.
  * 
  * @param manual_brightness_nibble the 4-bits unsigned integer value 
- *        of the brigthness in range 0..15.
+ *        of the brightness in range 0..15.
  */
 void matrix_set_manual_brightness(uint8_t manual_brightness_nibble);
 
 /**
  * @brief Gets the value of the manual brightness nibble (0..15).
- *        Used when the actual value of the manual brightness is reqiested by BLE.
+ *        Used when the actual value of the manual brightness is requested by BLE.
  * 
  * @return the integer value in range 0..15
  */

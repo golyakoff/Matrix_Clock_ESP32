@@ -64,8 +64,8 @@ void loop()
     unsigned long now = millis();
     if (now > _10ms_loop_due) {
         matrix_100hz_loop();
-        touch_100hz_loop_tick();
-
+        //touch_100hz_loop_tick();
+        
         _10ms_loop_due = now + 10;
 
         matrix_get_time(&_matrix_dt);
@@ -90,6 +90,21 @@ void main_rtc_init()
         }
     }    
     Serial.println(F("rtc.init(): OK"));
+    
+    // Write aging offset into RTC chip
+    const int8_t rtc_cor_ao = -2;
+    if (!rtc.setAgingOffset(rtc_cor_ao))
+    {
+        for(;;) {
+            Serial.println(F("Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!"));
+            delay(5000);
+        }
+    }
+    Serial.printf("rtc.setAgingOffset(%d): OK\n", rtc_cor_ao);
+
+    // Write out RTC chip aging offset
+    int8_t rtc_ao = rtc.getAgingOffset();
+    Serial.printf("rtc.getAgingOffset(): OK : %d\n", rtc_ao);
     
     // Write out RTC chip temperature
     int8_t rtc_t;
@@ -238,6 +253,30 @@ void get_matrix_alarm_on_ble_read(ble_alarm_index_t index, uint8_t *hours, uint8
     }
 }
 
+int8_t get_rtc_temperature_ble_read()
+{
+    int8_t c;
+    uint8_t f;
+    if (!rtc.getTemperature(&c, &f))
+    {
+         Serial.println(F("Error: get_rtc_temperature_ble_read(...) > rtc.getTemperature(...)"));
+         return 0;
+    }
+
+    return c;
+}
+
+int8_t get_rtc_aging_offset_on_ble_read()
+{
+    return rtc.getAgingOffset();
+}
+
+void set_rtc_aging_offset_on_ble_write(const int8_t aging_offset)
+{
+    if (!rtc.setAgingOffset(aging_offset))
+        Serial.println(F("Error: set_rtc_aging_offset_on_ble_write(...) > rtc.setAgingOffset(...)"));
+}
+
 void main_ble_init()
 {
     ble_init(
@@ -249,7 +288,10 @@ void main_ble_init()
         &set_matrix_manual_brightness_on_ble_write,
         &get_matrix_manual_brightness_on_ble_read,
         &set_matrix_alarm_on_ble_write,
-        &get_matrix_alarm_on_ble_read);
+        &get_matrix_alarm_on_ble_read,
+        &get_rtc_temperature_ble_read,
+        &get_rtc_aging_offset_on_ble_read,
+        &set_rtc_aging_offset_on_ble_write);
 }
 
  void alarm_off_callback(const uint8_t hours, const uint8_t minutes)

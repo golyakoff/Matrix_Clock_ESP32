@@ -34,7 +34,7 @@ static bool _force_update;          // if "true", there will be performed forced
  * (from RTC and BLE, for example) to the byte (8-bits unsigned integer) value
  * used in matrix, see call of display.setBrightness().
  */
-static const uint8_t _matrix_brighness_nibbles[] =
+static const uint8_t _matrix_brightness_nibbles[] =
 {
     0x07, 0x10, 0x20, 0x30,
     0x40, 0x50, 0x60, 0x70,
@@ -60,11 +60,12 @@ void matrix_init(struct tm *init_dt)
 {
     matrix_set_time(init_dt, true);
 
-#ifdef ADJUST_BRIGHTNESS
-    pinMode(VARISTOR_PIN, INPUT);
-#endif // ADJUST_BRIGHTNESS
+    //analogReadResolution(10);
+    if (!adcAttachPin(LDR_PIN))
+        Serial.println(F("Error: adcAttachPin(LDR_PIN) returned FALSE."));
+    
 
-    // Intialise display library
+    // Initialize display library
     display.begin(16); // Generic ESP32 including Huzzah
     display.setColorOrder(COLOR_ORDER);
     display.flushDisplay();
@@ -186,6 +187,7 @@ uint8_t matrix_get_manual_brightness()
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
 {
+    /// TODO: Pay attention
     // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
     display.display(10);
     // AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
@@ -194,8 +196,9 @@ void IRAM_ATTR display_updater()
 // This method is for controlling the tetris library draw calls
 void animation_handler()
 {
+    /// TODO: Pay attention
     // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
-
+    
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
     if (!_finished_animating)
@@ -264,10 +267,13 @@ void check_brightness_tick()
     {
         if (_use_auto_brightness)
         {
-            _brightness = map(
-                analogRead(VARISTOR_PIN),
-                0, ADC_SCALE,
-                PWM_MIN_VALUE, PWM_MAX_VALUE);
+            uint16_t adc_var_val = analogRead(LDR_PIN);
+            Serial.printf("ADC value from LDR is %d\n", adc_var_val);
+
+            // _brightness = map(
+            //     adc_var_val,
+            //     0, ADC_SCALE,
+            //     PWM_MIN_VALUE, PWM_MAX_VALUE);
         }
         else
         {
@@ -289,7 +295,7 @@ void check_brightness_tick()
 
 uint8_t brightness_nibble_to_byte(uint8_t brightness_nibble)
 {
-    return _matrix_brighness_nibbles[brightness_nibble & 15];
+    return _matrix_brightness_nibbles[brightness_nibble & 15];
 }
 
 #pragma endregion // Private methods definition
