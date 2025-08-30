@@ -7,6 +7,19 @@
 	],
 	"settings": {
 		"files.associations": {
-		}
+		},
+		"cSpell.words": [
+			"Golyakoff",
+			"gatts",
+			"Tetris",
+			"mcabe",
+			"mcmbv",
+			"mctao",
+			"mctnc",
+			"mctofa",
+			"mctona",
+			"mcts",
+			"mctt",
+		]
 	}
 }
