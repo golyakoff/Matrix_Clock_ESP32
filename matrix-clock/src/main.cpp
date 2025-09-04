@@ -9,6 +9,7 @@
 // Standard Libraries
 #include <Arduino.h>
 #include <Wire.h>
+#include <esp_ota_ops.h>
 
 // Project includes
 #include "time_helper.h"
@@ -17,6 +18,8 @@
 #include "ble.h"
 #include "alarm.h"
 #include "touch_sensor.h"
+#include "version.h"
+#include "ota.h"
 
 #define RTC_SPEED   (400000U)
 #define RTC_SCL     (26U)
@@ -48,15 +51,27 @@ static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUC
 void main_rtc_init();
 void main_ble_init();
 void main_matrix_init();
+void ota_progress_callback(size_t received, size_t total);
+void ota_status_callback(const char* status);
+void ota_completion_callback(bool success, const char* message);
 
 void setup()
 {
     Serial.begin(115200);
     
+    ota_config_t ota_config = {
+        .progress_cb = ota_progress_callback,
+        .status_cb = ota_status_callback,
+        .complete_cb = ota_completion_callback
+    };
+    ota_init(&ota_config);
+
     main_rtc_init();
     main_ble_init();
     delay(500);
-    main_matrix_init();    
+    main_matrix_init();
+
+    Serial.printf("Firmware version: %s\n", ota_get_current_version());
 }
 
 void loop()
@@ -85,22 +100,22 @@ void main_rtc_init()
     if (!rtc.init(RTC_SDA, RTC_SCL, RTC_SPEED))
     {
         for(;;) {
-            Serial.println(F("Error: rtc.init(). RTC was not initialized!"));
+            Serial.println("Error: rtc.init(). RTC was not initialized!");
             delay(5000);
         }
     }    
     Serial.println(F("rtc.init(): OK"));
     
     // Write aging offset into RTC chip
-    const int8_t rtc_cor_ao = -2;
-    if (!rtc.setAgingOffset(rtc_cor_ao))
-    {
-        for(;;) {
-            Serial.println(F("Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!"));
-            delay(5000);
-        }
-    }
-    Serial.printf("rtc.setAgingOffset(%d): OK\n", rtc_cor_ao);
+    // const int8_t rtc_cor_ao = -2;
+    // if (!rtc.setAgingOffset(rtc_cor_ao))
+    // {
+    //     for(;;) {
+    //         Serial.println(F("Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!"));
+    //         delay(5000);
+    //     }
+    // }
+    // Serial.printf("rtc.setAgingOffset(%d): OK\n", rtc_cor_ao);
 
     // Write out RTC chip aging offset
     int8_t rtc_ao = rtc.getAgingOffset();
@@ -277,6 +292,103 @@ void set_rtc_aging_offset_on_ble_write(const int8_t aging_offset)
         Serial.println(F("Error: set_rtc_aging_offset_on_ble_write(...) > rtc.setAgingOffset(...)"));
 }
 
+std::string get_fw_ver_on_ble_read()
+{
+    return std::string(ota_get_current_version());
+}
+
+void set_ota_control_ble_write(const uint8_t* data, size_t length)
+{
+    if (length == 0) {
+        ota_emit_status("Empty OTA control command");
+        return;
+    }
+
+    switch (data[0]) {
+        case 0x01: // Start OTA
+            if (ota_begin()) {
+                ota_emit_status("OTA started successfully");
+            } else {
+                ota_emit_status("OTA start failed");
+            }
+            break;
+            
+        case 0x02: // End OTA
+            if (ota_end()) {
+                ota_emit_status("OTA completed successfully");
+            } else {
+                ota_emit_status("OTA completion failed");
+            }
+            break;
+            
+        case 0x03: // Switch and reboot
+            ota_switch_and_reboot();
+            break;
+            
+        case 0x04: // Abort OTA
+            ota_abort();
+            ota_emit_status("OTA aborted by command");
+            break;
+            
+        case 0x05: // Get OTA status
+            {
+                char status_msg[128];
+                snprintf(status_msg, sizeof(status_msg),
+                         "OTA Status: %s, Progress: %d/%d bytes",
+                         ota_is_in_progress() ? "In progress" : "Idle",
+                         ota_get_bytes_received(), ota_get_total_size());
+                ota_emit_status(status_msg);
+            }
+            break;
+            
+        default:
+            {
+                char error_msg[64];
+                snprintf(error_msg, sizeof(error_msg),
+                         "Unknown OTA control command: 0x%02x", data[0]);
+                ota_emit_status(error_msg);
+            }
+            break;
+    }
+}
+
+void set_ota_data_ble_write(const uint8_t* data, size_t length)
+{
+    if (!ota_write((uint8_t*)data, length)) {
+        ota_emit_status("OTA data write failed");
+    }
+}
+
+/**
+ * @brief OTA progress callback function.
+ * 
+ * @param received Number of bytes received.
+ * @param total Total number of bytes expected.
+ */
+void ota_progress_callback(size_t received, size_t total) {
+    Serial.printf("OTA Progress: %d/%d bytes (%.1f%%)\n", 
+                 received, total, (received * 100.0) / total);
+}
+
+/**
+ * @brief OTA status callback function.
+ * 
+ * @param status Status message.
+ */
+void ota_status_callback(const char* status) {
+    Serial.printf("OTA: %s\n", status);
+}
+
+/**
+ * @brief OTA completion callback function.
+ * 
+ * @param success true if OTA completed successfully.
+ * @param message Completion message.
+ */
+void ota_completion_callback(bool success, const char* message) {
+    Serial.printf("OTA %s: %s\n", success ? "SUCCESS" : "FAILED", message);
+}
+
 void main_ble_init()
 {
     ble_init(
@@ -291,7 +403,10 @@ void main_ble_init()
         &get_matrix_alarm_on_ble_read,
         &get_rtc_temperature_ble_read,
         &get_rtc_aging_offset_on_ble_read,
-        &set_rtc_aging_offset_on_ble_write);
+        &set_rtc_aging_offset_on_ble_write,
+        &get_fw_ver_on_ble_read,
+        &set_ota_control_ble_write,
+        &set_ota_data_ble_write);
 }
 
  void alarm_off_callback(const uint8_t hours, const uint8_t minutes)
