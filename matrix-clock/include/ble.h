@@ -39,6 +39,11 @@
 // Control point to setup aging offset value (8-bit signed integer)
 #define MC_AGING_OFFSET_CHAR_UUID           "F89E201D-434F-4675-B60E-2CF682200C50" // M Read, Write
 
+
+#define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0"
+#define MC_OTA_CONTROL_UUID                 "BEB5483E-36E1-4688-B7F5-EA07361B26A1"
+#define MC_OTA_DATA_UUID                    "BEB5483E-36E1-4688-B7F5-EA07361B26A2"
+
 /**
  * @brief Type of a function for setting a new time to the device when it came from BLE.
  */
@@ -115,6 +120,10 @@ typedef int8_t (*ble_get_rtc_aging_offset_ble_read_t)();
  */
 typedef void (*ble_set_rtc_aging_offset_ble_write_t)(const int8_t aging_offset);
 
+/**
+ * @brief Type of a function for getting "Hardware Version" value from the device when it requested by BLE.
+ */
+typedef int8_t (*ble_get_hw_ver_ble_read_t)();
 
 /**
  * @brief Initializes the BLE module settings.
@@ -131,6 +140,7 @@ typedef void (*ble_set_rtc_aging_offset_ble_write_t)(const int8_t aging_offset);
  * @param ble_get_rtc_temperature_ble_read_cb Callback function for getting RTC temperature from the device when it requested by BLE.
  * @param ble_get_rtc_aging_offset_ble_read_cb Callback function for getting RTC aging offset from the device when it requested by BLE.
  * @param ble_set_rtc_aging_offset_ble_write_cb Callback function for setting RTC aging offset to the device when it came from BLE.
+ * @param ble_get_hw_ver_ble_read_cb Callback function for getting Hardware Version from the device when it requested by BLE.
  */
 void ble_init(
     ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
@@ -144,7 +154,8 @@ void ble_init(
     ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb,
     ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,
     ble_get_rtc_aging_offset_ble_read_t ble_get_rtc_aging_offset_ble_read_cb,
-    ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb);
+    ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb,
+    ble_get_hw_ver_ble_read_t ble_get_hw_ver_ble_read_cb);
 
 /**
  * @brief A method that is called when time updated outside of the BLE module

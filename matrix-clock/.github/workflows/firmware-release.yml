@@ -1,0 +1,41 @@
+name: Firmware Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup PlatformIO
+      uses: platformio/setup-platformio@v2
+
+    - name: Build Firmware
+      run: pio run
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          .pio/build/esp32dev/firmware.bin
+        tag_name: ${{ github.ref }}
+        name: Release ${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ESP32 Firmware Update
+          Version: ${{ steps.get_version.outputs.VERSION }}
+          Build date: ${{ github.event.head_commit.timestamp }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

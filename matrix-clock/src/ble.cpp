@@ -7,6 +7,7 @@
 
 #include "time_helper.h"
 #include "ble.h"
+#include "version.h"
 
 #define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
 #define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
@@ -27,6 +28,10 @@ static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacte
 
 static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+
+static BLECharacteristic _mchv_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
+//static BLECharacteristic _mcotac_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
+//static BLECharacteristic _mcotad_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 
 // Variables
 static bool _device_connected = false;
@@ -54,8 +59,11 @@ static ble_set_alarm_on_ble_write_t _set_alarm_on_ble_write = nullptr;
 static ble_get_alarm_on_ble_read_t _get_alarm_on_ble_read = nullptr;
 
 static ble_get_rtc_temperature_ble_read_t _get_rtc_temperature_ble_read = nullptr;
+
 static ble_get_rtc_aging_offset_ble_read_t _get_rtc_aging_offset_ble_read = nullptr;
 static ble_set_rtc_aging_offset_ble_write_t _set_rtc_aging_offset_ble_write = nullptr;
+
+static ble_get_hw_ver_ble_read_t _get_hw_ver_ble_read = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public BLEServerCallbacks
@@ -272,6 +280,14 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             pCharacteristic->setValue(data_val, sizeof(data_val));
             return;
         }
+
+        if(pCharacteristic->getUUID().equals(_mctao_chat.getUUID()))
+        {
+            int8_t aging_offset = _get_rtc_aging_offset_ble_read();
+            uint8_t data_val[1] = {  };
+            pCharacteristic->setValue(data_val, sizeof(data_val));
+            return;
+        }
     }
 };
 MyCharacteristicCallbacks _myCharacteristicCallbacks;
@@ -288,7 +304,8 @@ void ble_init(
     ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb,
     ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,
     ble_get_rtc_aging_offset_ble_read_t ble_get_rtc_aging_offset_ble_read_cb,
-    ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb)
+    ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb,
+    ble_get_hw_ver_ble_read_t ble_get_hw_ver_ble_read_cb)
 {
     // init update callbacks
     _set_time_on_ble_write = ble_set_time_on_ble_write_cb;
@@ -308,6 +325,8 @@ void ble_init(
     _get_rtc_temperature_ble_read = ble_get_rtc_temperature_ble_read_cb;
     _get_rtc_aging_offset_ble_read = ble_get_rtc_aging_offset_ble_read_cb;
     _set_rtc_aging_offset_ble_write = ble_set_rtc_aging_offset_ble_write_cb;
+
+    _get_hw_ver_ble_read = ble_get_hw_ver_ble_read_cb;
 
     // reset last updated date and time
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
@@ -390,6 +409,13 @@ void ble_init(
     _mctao_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
     Serial.println(_mctao_char.toString().c_str());
+
+    // Add MatrixClock Hardware Version Value characteristic
+    Serial.print(F("Add MatrixClock Hardware Version Value char... "));
+    bleService->addCharacteristic(&_mchv_char);
+    _mctao_chat.setCallbacks(&_myCharacteristicCallbacks);
+    Serial.print(F("OK: "));
+    Serial.println(_mchv_char.toString().c_str());
 
     // Start the service
     Serial.print(F("bleService->start()... "));
