@@ -4,7 +4,7 @@
 #include "time.h"
 
 //BLE server name
-#define BLE_SERVER_NAME                     "Tetris Clock XXX"
+#define BLE_SERVER_NAME                     "Tetris Clock"
 
 // The only service
 #define MC_SERVICE_UUID                     "5DE498A1-E7A6-4F4A-B323-913741895AD0" // Matrix Clock Service
@@ -40,9 +40,9 @@
 #define MC_AGING_OFFSET_CHAR_UUID           "F89E201D-434F-4675-B60E-2CF682200C50" // M Read, Write
 
 
-#define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0"
-#define MC_OTA_CONTROL_UUID                 "BEB5483E-36E1-4688-B7F5-EA07361B26A1"
-#define MC_OTA_DATA_UUID                    "BEB5483E-36E1-4688-B7F5-EA07361B26A2"
+#define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
+#define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1"
+#define MC_OTA_DATA_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A2"
 
 /**
  * @brief Type of a function for setting a new time to the device when it came from BLE.
@@ -121,9 +121,19 @@ typedef int8_t (*ble_get_rtc_aging_offset_ble_read_t)();
 typedef void (*ble_set_rtc_aging_offset_ble_write_t)(const int8_t aging_offset);
 
 /**
- * @brief Type of a function for getting "Hardware Version" value from the device when it requested by BLE.
+ * @brief Type of a function for getting "Firmware Version" value from the device when it requested by BLE.
  */
-typedef int8_t (*ble_get_hw_ver_ble_read_t)();
+typedef std::string (*ble_get_fw_ver_ble_read_t)();
+
+/**
+ * @brief Type of a function for controlling a firmware update process when it requested by BLE.
+ */
+typedef void (*ble_set_ota_control_ble_write_t)(const uint8_t* data, size_t length);
+
+/**
+ * @brief Type of a function for a new firmware data upload process when it requested by BLE.
+ */
+typedef void (*ble_set_ota_data_ble_write_t)(const uint8_t* data, size_t length);
 
 /**
  * @brief Initializes the BLE module settings.
@@ -140,7 +150,9 @@ typedef int8_t (*ble_get_hw_ver_ble_read_t)();
  * @param ble_get_rtc_temperature_ble_read_cb Callback function for getting RTC temperature from the device when it requested by BLE.
  * @param ble_get_rtc_aging_offset_ble_read_cb Callback function for getting RTC aging offset from the device when it requested by BLE.
  * @param ble_set_rtc_aging_offset_ble_write_cb Callback function for setting RTC aging offset to the device when it came from BLE.
- * @param ble_get_hw_ver_ble_read_cb Callback function for getting Hardware Version from the device when it requested by BLE.
+ * @param ble_get_fw_ver_ble_read_cb Callback function for getting Firmware Version from the device when it requested by BLE.
+ * @param ble_set_ota_control_ble_write_cb Callback function for setting OTA Control to the device when it came from BLE.
+ * @param ble_set_ota_data_ble_write_cb  Callback function for setting OTA Firmware Data to the device when it came from BLE.
  */
 void ble_init(
     ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
@@ -155,7 +167,9 @@ void ble_init(
     ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,
     ble_get_rtc_aging_offset_ble_read_t ble_get_rtc_aging_offset_ble_read_cb,
     ble_set_rtc_aging_offset_ble_write_t ble_set_rtc_aging_offset_ble_write_cb,
-    ble_get_hw_ver_ble_read_t ble_get_hw_ver_ble_read_cb);
+    ble_get_fw_ver_ble_read_t ble_get_fw_ver_ble_read_cb,
+    ble_set_ota_control_ble_write_t ble_set_ota_control_ble_write_cb,
+    ble_set_ota_data_ble_write_t ble_set_ota_data_ble_write_cb);
 
 /**
  * @brief A method that is called when time updated outside of the BLE module
@@ -174,6 +188,12 @@ void ble_update_rtc_time(struct tm *dt);
  * @param show The new value of the matrix "show" state.
  */
 void ble_update_matrix_show(const bool show);
+
+/**
+ * @brief A method that is called after the BLE stack has been initialized and the advertising has started.
+ *        It is used to push notification to the connected BLE device about the firmware version.
+ */
+void ble_update_firmware_version();
 
 #endif // __BLE_H__
 
