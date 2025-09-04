@@ -26,8 +26,8 @@ static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteri
 static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
-static BLECharacteristic _mctt_chat(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
-static BLECharacteristic _mctao_chat(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
+static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mchv_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 //static BLECharacteristic _mcotac_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
@@ -201,7 +201,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if (pCharacteristic->getUUID().equals(_mctao_chat.getUUID()))
+        if (pCharacteristic->getUUID().equals(_mctao_char.getUUID()))
         {
             if (_set_rtc_aging_offset_ble_write == nullptr)
             {
@@ -265,7 +265,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mctt_chat.getUUID()))
+        if(pCharacteristic->getUUID().equals(_mctt_char.getUUID()))
         {
             int8_t temperature = _get_rtc_temperature_ble_read();
             uint8_t data_val[1] = { temperature };
@@ -273,7 +273,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mctao_chat.getUUID()))
+        if(pCharacteristic->getUUID().equals(_mctao_char.getUUID()))
         {
             int8_t aging_offset = _get_rtc_aging_offset_ble_read();
             uint8_t data_val[1] = { aging_offset };
@@ -398,17 +398,17 @@ void ble_init(
 
     // Add MatrixClock RTC Temperature Value characteristic
     Serial.print(F("Add MatrixClock RTC Temperature Value char... "));
-    bleService->addCharacteristic(&_mctt_chat);
-    _mctt_chat.setCallbacks(&_myCharacteristicCallbacks);
+    bleService->addCharacteristic(&_mctt_char);
+    _mctt_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
-    Serial.println(_mctt_chat.toString().c_str());
+    Serial.println(_mctt_char.toString().c_str());
 
     // Add MatrixClock RTC Aging Offset Value characteristic
     Serial.print(F("Add MatrixClock RTC Aging Offset Value char... "));
-    bleService->addCharacteristic(&_mctao_chat);
-    _mctao_chat.setCallbacks(&_myCharacteristicCallbacks);
+    bleService->addCharacteristic(&_mctao_char);
+    _mctao_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
-    Serial.println(_mctao_chat.toString().c_str());
+    Serial.println(_mctao_char.toString().c_str());
 
     // Add MatrixClock Hardware Version Value characteristic
     Serial.print(F("Add MatrixClock Hardware Version Value char... "));
