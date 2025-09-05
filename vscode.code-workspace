@@ -1,0 +1,33 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"platformio-ide.showEditorTitleShortcuts": true,
+		"platformio-ide.useBuiltinPython": false,
+		"platformio-ide.customPATH": "C:/Users/ago/.platformio/penv/Scripts",
+		"terminal.integrated.env.windows": {
+			"PATH": "C:/Users/ago/.platformio/penv/Scripts;${env:PATH}"
+		},
+		"files.watcherExclude": {
+            ".pio/**": true,
+            ".git/**": true
+		},
+		"cSpell.words": [
+			"Golyakoff",
+			"gatts",
+			"Tetris",
+			"mcabe",
+			"mcmbv",
+			"mctao",
+			"mctnc",
+			"mctofa",
+			"mctona",
+			"mcts",
+			"mctt",
+			"mcfv",
+		]
+	}
+}
