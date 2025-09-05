@@ -1,3 +1,15 @@
 {
-    "idf.portWin": "COM3"
+    "platformio-ide.autoRefreshEnvironment": true,
+    "platformio-ide.customEnv": [
+        {
+            "name": "esp32_4mb", 
+            "description": "4MB Flash version"
+        },
+        {
+            "name": "esp32_16mb",
+            "description": "16MB Flash version"
+        }
+    ],
+    "platformio-ide.defaultEnv": "esp32",
+    "platformio-ide.advancedEnv": true
 }

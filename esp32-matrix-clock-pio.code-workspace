@@ -1,11 +1,31 @@
 {
 	"folders": [
 		{
-			"name": "matrix-clock",
-			"path": "matrix-clock"
+			"name": "firmware",
+			"path": "matrix-clock",
+		},
+		{
+			"name": "docs",
+			"path": "docs",
+		},
+		{
+			"name": ".github",
+			"path": ".github",
 		}
 	],
 	"settings": {
+		"platformio-ide.workspaceRoot": "matrix-clock",
+		"platformio-ide.autoActivateEnv": true,
+		"platformio-ide.showEditorTitleShortcuts": true,
+		"platformio-ide.useBuiltinPython": false,
+		"platformio-ide.customPATH": "C:/Users/ago/.platformio/penv/Scripts",
+		"terminal.integrated.env.windows": {
+			"PATH": "C:/Users/ago/.platformio/penv/Scripts;${env:PATH}"
+		},
+		"files.watcherExclude": {
+            "**/.pio/**": true,
+            "**/.git/**": true
+        },
 		"files.associations": {
 			"string": "cpp",
 			"array": "cpp",
