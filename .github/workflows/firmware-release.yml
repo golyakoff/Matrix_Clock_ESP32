@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,71 +36,97 @@ jobs:
 
     - name: Get version from tag
       id: get_version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-    - name: List build artifacts
       run: |
-        echo "=== Built firmware files ==="
-        find .pio -name "firmware.bin" -type f
-        echo ""
-        echo "=== Partition tables ==="
-        find .pio -name "partitions.bin" -type f
+        # Извлекаем версию из тега (убираем 'refs/tags/v')
+        VERSION=${GITHUB_REF#refs/tags/}
+        VERSION=${VERSION#v}  # Убираем 'v' если есть
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Rename firmware files with meaningful names
+      run: |
+        # Извлекаем версию без 'v'
+        VERSION=${GITHUB_REF#refs/tags/}
+        VERSION=${VERSION#v}
+        
+        # Создаем понятные имена файлов
+        cp .pio/build/esp32_4mb_debug/firmware.bin "fw_tetris_clock_${VERSION}_debug_4mb.bin"
+        cp .pio/build/esp32_4mb_debug/partitions.bin "partitions_${VERSION}_debug_4mb.bin"
+        
+        cp .pio/build/esp32_4mb/firmware.bin "fw_tetris_clock_${VERSION}_release_4mb.bin"
+        cp .pio/build/esp32_4mb/partitions.bin "partitions_${VERSION}_release_4mb.bin"
+        
+        cp .pio/build/esp32_16mb/firmware.bin "fw_tetris_clock_${VERSION}_release_16mb.bin"
+        cp .pio/build/esp32_16mb/partitions.bin "partitions_${VERSION}_release_16mb.bin"
+
+    - name: List final artifacts
+      run: |
+        echo "=== Final firmware files ==="
+        ls -la *.bin
         echo ""
         echo "=== File sizes ==="
-        for env in esp32_4mb esp32_4mb_debug esp32_16mb esp32_16mb_debug; do
-          if [ -f ".pio/build/$env/firmware.bin" ]; then
-            size=$(du -h ".pio/build/$env/firmware.bin" | cut -f1)
-            echo "$env: $size"
-          fi
-        done
+        du -h *.bin
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          .pio/build/esp32_4mb/firmware.bin
-          .pio/build/esp32_4mb/partitions.bin
-          .pio/build/esp32_4mb_debug/firmware.bin
-          .pio/build/esp32_4mb_debug/partitions.bin
-          .pio/build/esp32_16mb/firmware.bin
-          .pio/build/esp32_16mb/partitions.bin
-        tag_name: ${{ github.ref }}
-        name: Release ${{ steps.get_version.outputs.VERSION }}
+          fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin
+          partitions_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin
+          fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin
+          partitions_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin
+          fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin
+          partitions_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin
+        tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+        name: Release ${{ steps.get_version.outputs.TAG_NAME }}
         body: |
-          # ESP32 Firmware Update
+          # Tetris Clock ESP32 Firmware
           
-          **Version:** ${{ steps.get_version.outputs.VERSION }}
+          **Version:** ${{ steps.get_version.outputs.TAG_NAME }}
           **Build date:** ${{ github.event.head_commit.timestamp }}
           
           ## Available Firmware Images
           
-          ### Debug version (with logging)
-          #### 4MB Flash:
-          - `esp32_4mb_debug/firmware.bin` - Firmware
-          - `esp32_4mb_debug/partitions.bin` - Corresponding partition table
+          ### 🐞 Debug Version (with logging)
+          **4MB Flash:**
+          - `fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin` - Firmware
+          - `partitions_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin` - Partition table
+          
+          ### 🚀 Production Version (optimized)
+          **4MB Flash:**
+          - `fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin` - Firmware
+          - `partitions_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin` - Partition table
+          
+          **16MB Flash:**
+          - `fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin` - Firmware
+          - `partitions_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin` - Partition table
+          
+          ## Flash Instructions
 
-          ### Production version (optimized)
-          #### 4MB Flash:
-          - `esp32_4mb/firmware.bin` - Firmware
-          - `esp32_4mb/partitions.bin` - Corresponding partition table
-          #### 16MB Flash:
-          - `esp32_16mb/firmware.bin` - Firmware
-          - `esp32_16mb/partitions.bin` - Corresponding partition table
-          
-          ## Flash Commands Examples
-          
-          **For 4MB production:**
+          **For 4MB Debug:**
           ```bash
           esptool.py --chip esp32 --baud 460800 write_flash \
-          0x1000 esp32_4mb/firmware.bin \
-          0x8000 esp32_4mb/partitions.bin
+          0x1000 fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin \
+          0x8000 partitions_${{ steps.get_version.outputs.VERSION }}_debug_4mb.bin
           ```
-          
-          **For 16MB debug:**
+
+          **For 4MB Release:**
           ```bash
           esptool.py --chip esp32 --baud 460800 write_flash \
-          0x1000 esp32_16mb_debug/firmware.bin \
-          0x8000 esp32_16mb_debug/partitions.bin
+          0x1000 fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin \
+          0x8000 partitions_${{ steps.get_version.outputs.VERSION }}_release_4mb.bin
           ```
+          
+          **For 16MB Release:**
+          ```bash
+          esptool.py --chip esp32 --baud 460800 write_flash \
+          0x1000 fw_tetris_clock_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin \
+          0x8000 partitions_${{ steps.get_version.outputs.VERSION }}_release_16mb.bin
+          ```
+          
+          ## Notes
+          - **Debug versions** include serial logging and debug features
+          - **Release versions** are optimized for size and performance
+          - Use corresponding partition table with each firmware
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
