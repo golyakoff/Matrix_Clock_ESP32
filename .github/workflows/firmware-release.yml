@@ -27,10 +27,9 @@ jobs:
 
     - name: Build all environments
       run: |
-        pio run -e esp32_4mb
-        pio run -e esp32_4mb_debug
+        pio run -e esp32_4mb_debug  
+        pio run -e esp32_4mb        
         pio run -e esp32_16mb
-        pio run -e esp32_16mb_debug
 
     - name: Get version from tag
       id: get_version
@@ -62,8 +61,6 @@ jobs:
           .pio/build/esp32_4mb_debug/partitions.bin
           .pio/build/esp32_16mb/firmware.bin
           .pio/build/esp32_16mb/partitions.bin
-          .pio/build/esp32_16mb_debug/firmware.bin
-          .pio/build/esp32_16mb_debug/partitions.bin
         tag_name: ${{ github.ref }}
         name: Release ${{ steps.get_version.outputs.VERSION }}
         body: |
@@ -74,21 +71,18 @@ jobs:
           
           ## Available Firmware Images
           
-          ### 4MB Flash Versions:
-          - `esp32_4mb/firmware.bin` - Production version (optimized)
-          - `esp32_4mb_debug/firmware.bin` - Debug version with logging
-          
-          ### 16MB Flash Versions:
-          - `esp32_16mb/firmware.bin` - Production version (optimized)
-          - `esp32_16mb_debug/firmware.bin` - Debug version with logging
-          
-          ## Partition Tables
-          
-          Use corresponding partition table with each firmware:
-          - `esp32_4mb/partitions.bin`
-          - `esp32_4mb_debug/partitions.bin`
-          - `esp32_16mb/partitions.bin`
-          - `esp32_16mb_debug/partitions.bin`
+          ### Debug version (with logging)
+          #### 4MB Flash:
+          - `esp32_4mb_debug/firmware.bin` - Firmware
+          - `esp32_4mb_debug/partitions.bin` - Corresponding partition table
+
+          ### Production version (optimized)
+          #### 4MB Flash:
+          - `esp32_4mb/firmware.bin` - Firmware
+          - `esp32_4mb/partitions.bin` - Corresponding partition table
+          #### 16MB Flash:
+          - `esp32_16mb/firmware.bin` - Firmware
+          - `esp32_16mb/partitions.bin` - Corresponding partition table
           
           ## Flash Commands Examples
           
