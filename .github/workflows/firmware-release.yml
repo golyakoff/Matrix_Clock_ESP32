@@ -13,36 +13,97 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: Install PlatformIO Core
+    - name: Install PlatformIO
       run: |
         python -m pip install --upgrade pip
         pip install platformio
+        pio --version
 
-    - name: Build Firmware
-      run: pio run
+    - name: Build all environments
+      run: |
+        pio run -e esp32_4mb
+        pio run -e esp32_4mb_debug
+        pio run -e esp32_16mb
+        pio run -e esp32_16mb_debug
 
     - name: Get version from tag
       id: get_version
       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+    - name: List build artifacts
+      run: |
+        echo "=== Built firmware files ==="
+        find .pio -name "firmware.bin" -type f
+        echo ""
+        echo "=== Partition tables ==="
+        find .pio -name "partitions.bin" -type f
+        echo ""
+        echo "=== File sizes ==="
+        for env in esp32_4mb esp32_4mb_debug esp32_16mb esp32_16mb_debug; do
+          if [ -f ".pio/build/$env/firmware.bin" ]; then
+            size=$(du -h ".pio/build/$env/firmware.bin" | cut -f1)
+            echo "$env: $size"
+          fi
+        done
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          .pio/build/esp32dev/firmware.bin
+          .pio/build/esp32_4mb/firmware.bin
+          .pio/build/esp32_4mb/partitions.bin
+          .pio/build/esp32_4mb_debug/firmware.bin
+          .pio/build/esp32_4mb_debug/partitions.bin
+          .pio/build/esp32_16mb/firmware.bin
+          .pio/build/esp32_16mb/partitions.bin
+          .pio/build/esp32_16mb_debug/firmware.bin
+          .pio/build/esp32_16mb_debug/partitions.bin
         tag_name: ${{ github.ref }}
         name: Release ${{ steps.get_version.outputs.VERSION }}
         body: |
-          ESP32 Firmware Update
-          Version: ${{ steps.get_version.outputs.VERSION }}
-          Build date: ${{ github.event.head_commit.timestamp }}
+          # ESP32 Firmware Update
+          
+          **Version:** ${{ steps.get_version.outputs.VERSION }}
+          **Build date:** ${{ github.event.head_commit.timestamp }}
+          
+          ## Available Firmware Images
+          
+          ### 4MB Flash Versions:
+          - `esp32_4mb/firmware.bin` - Production version (optimized)
+          - `esp32_4mb_debug/firmware.bin` - Debug version with logging
+          
+          ### 16MB Flash Versions:
+          - `esp32_16mb/firmware.bin` - Production version (optimized)
+          - `esp32_16mb_debug/firmware.bin` - Debug version with logging
+          
+          ## Partition Tables
+          
+          Use corresponding partition table with each firmware:
+          - `esp32_4mb/partitions.bin`
+          - `esp32_4mb_debug/partitions.bin`
+          - `esp32_16mb/partitions.bin`
+          - `esp32_16mb_debug/partitions.bin`
+          
+          ## Flash Commands Examples
+          
+          **For 4MB production:**
+          ```bash
+          esptool.py --chip esp32 --baud 460800 write_flash \
+          0x1000 esp32_4mb/firmware.bin \
+          0x8000 esp32_4mb/partitions.bin
+          ```
+          
+          **For 16MB debug:**
+          ```bash
+          esptool.py --chip esp32 --baud 460800 write_flash \
+          0x1000 esp32_16mb_debug/firmware.bin \
+          0x8000 esp32_16mb_debug/partitions.bin
+          ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
