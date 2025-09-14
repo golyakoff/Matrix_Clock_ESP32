@@ -3,8 +3,13 @@
 
 #include "time.h"
 
-//BLE server name
+// BLE server name
 #define BLE_SERVER_NAME                     "Tetris Clock"
+
+// BLE device MTU and OTA data buffer size
+#define BLE_DEVICE_MTU                      515
+#define BLE_OTA_DATA_BUFFER                 (BLE_DEVICE_MTU - 3)
+#define BLE_TASK_STACK_SIZE                 8192 
 
 // The only service
 #define MC_SERVICE_UUID                     "5DE498A1-E7A6-4F4A-B323-913741895AD0" // Matrix Clock Service
@@ -39,10 +44,10 @@
 // Control point to setup aging offset value (8-bit signed integer)
 #define MC_AGING_OFFSET_CHAR_UUID           "F89E201D-434F-4675-B60E-2CF682200C50" // M Read, Write
 
-
+// Firmware update characteristics
 #define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
-#define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1"
-#define MC_OTA_DATA_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A2"
+#define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1" // M Write
+#define MC_OTA_DATA_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A2" // M Write
 
 /**
  * @brief Type of a function for setting a new time to the device when it came from BLE.

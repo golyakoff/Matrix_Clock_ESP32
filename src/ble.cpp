@@ -29,8 +29,8 @@ static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic:
 static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mcfv_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-static BLECharacteristic _mcotac_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcotad_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mcotac_char(MC_OTA_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mcotad_char(MC_OTA_DATA_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE /*| BLECharacteristic::PROPERTY_WRITE_NR*/);
 
 // Variables
 static bool _device_connected = false;
@@ -246,10 +246,12 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 return;
             }
 
-            Serial.println(F("Calling callback _set_ota_data_ble_write()... "));
+            delay(2);
+
+            //Serial.println(F("Calling callback _set_ota_data_ble_write()... "));
             _set_ota_data_ble_write(param->write.value, param->write.len);
 
-            Serial.println(F("OK"));
+            //Serial.println(F("OK"));
             return;
         }
     }
@@ -364,6 +366,11 @@ void ble_init(
     BLEDevice::init(BLE_SERVER_NAME);
     Serial.println(F("OK"));
 
+    Serial.printf("Set MTU to '%d'... ", BLE_DEVICE_MTU);
+    BLEDevice::setMTU(BLE_DEVICE_MTU);
+    Serial.printf("Actual MTU value now: '%d': ", BLEDevice::getMTU());
+    Serial.println(F("OK"));
+
     // Create the BLE Server
     Serial.print(F("Create BLE Server... "));
     BLEServer *pServer = BLEDevice::createServer();
@@ -452,6 +459,8 @@ void ble_init(
 
     Serial.print(F("Add MatrixClock OTA Data char... "));
     bleService->addCharacteristic(&_mcotad_char);
+    uint8_t init_buffer[BLE_OTA_DATA_BUFFER] = {0};
+    _mcotad_char.setValue(init_buffer, sizeof(init_buffer));
     _mcotad_char.setCallbacks(&_myCharacteristicCallbacks);
     Serial.print(F("OK: "));
     Serial.println(_mcotad_char.toString().c_str());
