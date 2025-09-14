@@ -119,26 +119,26 @@ bool ota_begin() {
     }
 
     // Find and validate target partition
-    target_partition = get_target_partition();
-    if (!target_partition) {
-        ota_emit_status("Failed to find target partition");
-        return false;
-    }
+    // target_partition = get_target_partition();
+    // if (!target_partition) {
+    //     ota_emit_status("Failed to find target partition");
+    //     return false;
+    // }
 
     // Initialize OTA state variables
-    ota_total_size = target_partition->size;
+    ota_total_size = 1277056;
     ota_bytes_received = 0;
     ota_in_progress = true;
 
     // Log partition information
     char status_msg[128];
     snprintf(status_msg, sizeof(status_msg), 
-             "Starting OTA update to partition %d, size: %d bytes", 
-             target_partition->subtype, ota_total_size);
+             "Starting OTA update to partition U_FLASH, size: %d bytes", 
+             ota_total_size);
     ota_emit_status(status_msg);
 
     // Begin the update process
-    if (!Update.begin(ota_total_size, target_partition->subtype)) {
+    if (!Update.begin(ota_total_size, U_FLASH)) {
         ota_emit_status("Update.begin() failed");
         ota_in_progress = false;
         return false;
@@ -167,6 +167,8 @@ bool ota_write(uint8_t* data, size_t length) {
         ota_emit_status("Invalid data parameters");
         return false;
     }
+
+    delay(1);
 
     // Write data to the update partition
     size_t written = Update.write(data, length);

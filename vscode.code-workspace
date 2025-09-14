@@ -28,6 +28,10 @@
 			"mcts",
 			"mctt",
 			"mcfv",
+			"mcotac",
+			"mcotad",
+			"BLEUUID",
+			"otadata"
 		]
 	}
 }
