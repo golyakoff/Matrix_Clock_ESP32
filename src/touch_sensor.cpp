@@ -4,3 +4,8 @@ TouchSensor::TouchSensor(uint8_t touch_pin, touchCallback_t callback, touch_valu
 {
     touchAttachInterrupt(touch_pin, callback, threshold);
 }
+
+void TouchSensor::Unload()
+{
+    touchDetachInterrupt(_touch_pin);
+}

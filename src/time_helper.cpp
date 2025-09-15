@@ -1,6 +1,7 @@
 #include "HardwareSerial.h"
 
 #include "time_helper.h"
+#include <esp_log.h>
 
 bool times_are_different(const struct tm* dt1, const struct tm* dt2)
 {
@@ -13,10 +14,11 @@ bool times_are_different(const struct tm* dt1, const struct tm* dt2)
         dt1->tm_year != dt2->tm_year;
 }
 
-void println_tm(const char *prefix, const struct tm *dt)
+void log_tm(const char* tag, const char *prefix, const struct tm *dt)
 {
-    Serial.printf(
-        "%s: %d-%02d-%02d %02d:%02d:%02d\n",
+    ESP_LOGI(
+        tag,
+        "%s: %d-%02d-%02d %02d:%02d:%02d",
         prefix,
         dt->tm_year + 1900,
         dt->tm_mon,

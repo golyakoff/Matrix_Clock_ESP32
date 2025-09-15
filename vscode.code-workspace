@@ -31,7 +31,12 @@
 			"mcotac",
 			"mcotad",
 			"BLEUUID",
-			"otadata"
+			"otadata",
+			"ESP_LOGV",
+			"ESP_LOGD",
+			"ESP_LOGI",
+			"ESP_LOGW",
+			"ESP_LOGE"
 		]
 	}
 }

@@ -7,23 +7,8 @@
 
 // Event callbacks
 typedef void (*ota_progress_cb_t)(size_t received, size_t total);
-typedef void (*ota_status_cb_t)(const char* status);
+typedef void (*ota_status_cb_t)(const char* status, bool is_error);
 typedef void (*ota_complete_cb_t)(bool success, const char* message);
-
-// OTA config struct
-typedef struct {
-    ota_progress_cb_t progress_cb;
-    ota_status_cb_t status_cb;
-    ota_complete_cb_t complete_cb;
-} ota_config_t;
-
-/**
- * @brief Initializes the OTA update system with the provided configuration.
- * 
- * @param config Pointer to the OTA configuration structure containing callback functions.
- *               If NULL, default configuration will be used.
- */
-void ota_init(const ota_config_t* config);
 
 /**
  * @brief Begins the OTA update process and prepares for firmware data reception.
@@ -31,7 +16,12 @@ void ota_init(const ota_config_t* config);
  * @return true if OTA process started successfully.
  * @return false if OTA process failed to start or another update is already in progress.
  */
-bool ota_begin();
+bool ota_begin(
+    size_t firmware_size,
+    ota_progress_cb_t on_ota_progress_cb,
+    ota_status_cb_t on_ota_status_cb,
+    ota_complete_cb_t on_ota_complete_cb
+);
 
 /**
  * @brief Writes firmware data to the OTA update partition.
@@ -74,12 +64,6 @@ const char* ota_get_current_version();
 bool ota_validate_firmware();
 
 /**
- * @brief Switches to the newly updated firmware and reboots the device.
- *        This function does not return if successful.
- */
-void ota_switch_and_reboot();
-
-/**
  * @brief Checks if an OTA update process is currently in progress.
  * 
  * @return true if OTA update is active and receiving data.
@@ -108,7 +92,7 @@ size_t ota_get_total_size();
  * 
  * @param status Null-terminated status message.
  */
-void ota_emit_status(const char* status);
+void ota_emit_status(const char* status, bool is_error);
 
 /**
  * @brief Emits progress update through the configured callback.

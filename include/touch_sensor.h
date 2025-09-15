@@ -28,4 +28,9 @@ public:
      * @param threshold Values from touchRead below this threshold will be dropped.
      */
     TouchSensor(uint8_t touch_pin, touchCallback_t callback, touch_value_t threshold);
+
+    /**
+     * @brief Disables ISR.
+     */
+    void Unload();
 };

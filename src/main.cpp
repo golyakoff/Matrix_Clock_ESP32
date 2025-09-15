@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <esp_ota_ops.h>
+#include <esp_log.h>
 
 // Project includes
 #include "time_helper.h"
@@ -28,6 +29,8 @@
 
 #define TOUCH_PIN   (12U)
 #define TOUCH_THRESHOLD (40U)
+
+static const char* TAG = "MAIN";
 
 static unsigned long _10ms_loop_due = 0;
 
@@ -51,27 +54,29 @@ static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUC
 void main_rtc_init();
 void main_ble_init();
 void main_matrix_init();
+
 void ota_progress_callback(size_t received, size_t total);
-void ota_status_callback(const char* status);
+void ota_status_callback(const char* status, bool is_error);
 void ota_completion_callback(bool success, const char* message);
 
-void setup()
-{
-    Serial.begin(115200);
-    
-    ota_config_t ota_config = {
-        .progress_cb = ota_progress_callback,
-        .status_cb = ota_status_callback,
-        .complete_cb = ota_completion_callback
-    };
-    ota_init(&ota_config);
+void main_ota_init() {
+    detachInterrupt(RTC_SQW);
+    matrix_unload();
+    touchSensor.Unload();
+}
 
+void main_clock_init() {
     main_rtc_init();
     main_ble_init();
     delay(500);
     main_matrix_init();
+}
 
-    Serial.printf("Firmware version: %s\n", ota_get_current_version());
+void setup()
+{
+    Serial.begin(115200);
+    main_clock_init();
+    ESP_LOGI(TAG, "Firmware version: %s", ota_get_current_version());
 }
 
 void loop()
@@ -100,26 +105,26 @@ void main_rtc_init()
     if (!rtc.init(RTC_SDA, RTC_SCL, RTC_SPEED))
     {
         for(;;) {
-            Serial.println("Error: rtc.init(). RTC was not initialized!");
+            ESP_LOGE(TAG, "Error: rtc.init(). RTC was not initialized!");
             delay(5000);
         }
     }    
-    Serial.println(F("rtc.init(): OK"));
+    ESP_LOGI(TAG, "rtc.init(): OK");
     
     // Write aging offset into RTC chip
     // const int8_t rtc_cor_ao = -2;
     // if (!rtc.setAgingOffset(rtc_cor_ao))
     // {
     //     for(;;) {
-    //         Serial.println(F("Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!"));
+    //         ESP_LOGE(TAG, "Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!");
     //         delay(5000);
     //     }
     // }
-    // Serial.printf("rtc.setAgingOffset(%d): OK\n", rtc_cor_ao);
+    // ESP_LOGI(TAG, "rtc.setAgingOffset(%d): OK", rtc_cor_ao);
 
     // Write out RTC chip aging offset
     int8_t rtc_ao = rtc.getAgingOffset();
-    Serial.printf("rtc.getAgingOffset(): OK : %d\n", rtc_ao);
+    ESP_LOGI(TAG, "rtc.getAgingOffset(): OK : %d", rtc_ao);
     
     // Write out RTC chip temperature
     int8_t rtc_t;
@@ -127,23 +132,23 @@ void main_rtc_init()
     if (!rtc.getTemperature(&rtc_t, &rtc_f))
     {
         for(;;) {
-            Serial.println(F("Error: rtc.getTemperature(). Cannot read temperature from RTC!"));
+            ESP_LOGE(TAG, "Error: rtc.getTemperature(). Cannot read temperature from RTC!");
             delay(5000);
         }
     }
-    Serial.printf("rtc.getTemperature(): OK : %d.%d\n", rtc_t, rtc_f);
+    ESP_LOGI(TAG, "rtc.getTemperature(): OK : %d.%d", rtc_t, rtc_f);
 
     // Write out RTC date and time
     if (!rtc.getTime(&_rtc_dt))
     {
         for(;;) {
-            Serial.println(F("Error: rtc.getTime(). Cannot read time from RTC!"));
+            ESP_LOGE(TAG, "Error: rtc.getTime(). Cannot read time from RTC!");
             delay(5000);
         }
     }
-    println_tm("initialized _rtc_dt: ", &_rtc_dt);
-    Serial.printf(
-        "rtc.getTime(): OK : %d-%02d-%02d %02d:%02d:%02d\n",
+    log_tm(TAG, "initialized _rtc_dt: ", &_rtc_dt);
+    ESP_LOGI(TAG,
+        "rtc.getTime(): OK : %d-%02d-%02d %02d:%02d:%02d",
         _rtc_dt.tm_year + 1900,
         _rtc_dt.tm_mon,
         _rtc_dt.tm_mday,
@@ -174,7 +179,7 @@ void main_rtc_init()
 void main_matrix_init()
 {
     matrix_init(&_rtc_dt);
-    Serial.println(F("matrix_init(): OK"));
+    ESP_LOGI(TAG, "matrix_init(): OK");
 }
 
 // BLE init
@@ -185,75 +190,107 @@ void set_rtc_time_on_ble_write(const struct tm *dt)
     {
         // update matrix
         matrix_set_time(dt, true);
-        println_tm("-> Runtime date and time updated with the value", dt);
+
+        #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+        log_tm(TAG, "-> Runtime date and time updated with the value", dt);
+        #endif
+
         return;
     }
 
-    Serial.println(F("-> Error: Runtime date and time update failed"));
+    ESP_LOGE(TAG, "-> Error: Runtime date and time update failed");
 }
 
 void set_matrix_show_on_ble_write(bool show)
 {
     matrix_set_show(show);
-    Serial.printf("-> Matrix update show state: %d\n", show);
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_matrix_show_on_ble_write(%d)", show);
+    #endif
 }
 
 bool get_matrix_show_on_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_matrix_show_on_ble_read()");
+    #endif
+
     return matrix_get_show();
 }
 
 void set_matrix_auto_brightness_on_ble_write(bool auto_brightness)
 {
     matrix_set_auto_brightness(auto_brightness);
-    Serial.printf("-> Matrix update auto brightness state: %d\n", auto_brightness);
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_matrix_auto_brightness_on_ble_write(%d)", auto_brightness);
+    #endif
 
     if (!rtc.saveBrightness(auto_brightness, matrix_get_manual_brightness()))
-        Serial.println(F("Error: set_matrix_auto_brightness_on_ble_write(...) > rtc.saveBrightness(...)"));
+        ESP_LOGE(TAG, "Error: set_matrix_auto_brightness_on_ble_write(...) > rtc.saveBrightness(...)");
 }
 
 bool get_matrix_auto_brightness_on_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_matrix_auto_brightness_on_ble_read()");
+    #endif
+
     return matrix_get_auto_brightness();
 }
 
 void set_matrix_manual_brightness_on_ble_write(uint8_t manual_brightness)
 {
     matrix_set_manual_brightness(manual_brightness);
-    Serial.printf("-> Matrix update manual brightness value: %d\n", manual_brightness);
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_matrix_manual_brightness_on_ble_write(%d)", manual_brightness);
+    #endif
 
     if (!rtc.saveBrightness(matrix_get_auto_brightness(), manual_brightness))
-        Serial.println(F("Error: set_matrix_manual_brightness_on_ble_write(...) > rtc.saveBrightness(...)"));
+        ESP_LOGE(TAG, "Error: set_matrix_manual_brightness_on_ble_write(...) > rtc.saveBrightness(...)");
 }
 
 uint8_t get_matrix_manual_brightness_on_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_matrix_manual_brightness_on_ble_read()");
+    #endif
+
     return matrix_get_manual_brightness();
 }
 
 void set_matrix_alarm_on_ble_write(ble_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
 {
-    Serial.printf("Call set_matrix_alarm_on_ble_write(%d, %02d, %02d, %d)", index, hours, active);
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_matrix_alarm_on_ble_write(%d, %02d, %02d, %d)", index, hours, active);
+    #endif
+
     switch (index)
     {
         case ble_alarm_index_off:
             alarmOff.set(hours, minutes, active);
             if (!rtc.saveAlarm(rtc_alarm_index_off, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > rtc.saveAlarm(rtc_alarm_index_off...)"));
+                ESP_LOGE(TAG, "Error: set_matrix_alarm_on_ble_write(ble_alarm_index_off...) > rtc.saveAlarm(rtc_alarm_index_off...)");
             break;
         case ble_alarm_index_on:
             alarmOn.set(hours, minutes, active);
             if (!rtc.saveAlarm(rtc_alarm_index_on, hours, minutes, active))
-                Serial.println(F("Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > rtc.setAlarm(ble_alarm_index_on...)"));
+                ESP_LOGE(TAG, "Error: set_matrix_alarm_on_ble_write(ble_alarm_index_on...) > rtc.setAlarm(ble_alarm_index_on...)");
             break;
         default:
             break;
-            Serial.printf("Error: Unknown alarm index '%d' in set_matrix_alarm_on_ble_write()", index);
+            ESP_LOGE(TAG, "Error: Unknown alarm index '%d' in set_matrix_alarm_on_ble_write()", index);
     }
 }
 
 void get_matrix_alarm_on_ble_read(ble_alarm_index_t index, uint8_t *hours, uint8_t *minutes, bool *active)
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Call get_matrix_alarm_on_ble_read(%d, %02d, %02d, %d)", index, hours, active);
+    #endif
+
     switch (index)
     {
         case ble_alarm_index_off:
@@ -264,18 +301,22 @@ void get_matrix_alarm_on_ble_read(ble_alarm_index_t index, uint8_t *hours, uint8
             break;
         default:
             break;
-            Serial.printf("Error: Unknown alarm index '%d' in get_matrix_alarm_on_ble_read()", index);
+            ESP_LOGE(TAG, "Error: Unknown alarm index '%d' in get_matrix_alarm_on_ble_read()", index);
     }
 }
 
 int8_t get_rtc_temperature_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Call get_rtc_temperature_ble_read()");
+    #endif
+
     int8_t c;
     uint8_t f;
     if (!rtc.getTemperature(&c, &f))
     {
-         Serial.println(F("Error: get_rtc_temperature_ble_read(...) > rtc.getTemperature(...)"));
-         return 0;
+        ESP_LOGE(TAG, "Error: get_rtc_temperature_ble_read(...) > rtc.getTemperature(...)");
+        return 0;
     }
 
     return c;
@@ -283,62 +324,77 @@ int8_t get_rtc_temperature_ble_read()
 
 int8_t get_rtc_aging_offset_on_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Call get_rtc_aging_offset_on_ble_read()");
+    #endif
+
     return rtc.getAgingOffset();
 }
 
 void set_rtc_aging_offset_on_ble_write(const int8_t aging_offset)
 {
     if (!rtc.setAgingOffset(aging_offset))
-        Serial.println(F("Error: set_rtc_aging_offset_on_ble_write(...) > rtc.setAgingOffset(...)"));
+        ESP_LOGE(TAG, "Error: set_rtc_aging_offset_on_ble_write(...) > rtc.setAgingOffset(...)");
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_rtc_aging_offset_on_ble_write(%d)", aging_offset);
+    #endif
+
 }
 
 std::string get_fw_ver_on_ble_read()
 {
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_fw_ver_on_ble_read()");
+    #endif
+
     return std::string(ota_get_current_version());
 }
 
 void set_ota_control_ble_write(const uint8_t* data, size_t length)
 {
     if (length == 0) {
-        ota_emit_status("Empty OTA control command");
+        ota_emit_status("Empty OTA control command", true);
         return;
     }
 
     switch (data[0]) {
         case 0x01: // Start OTA
-            if (ota_begin()) {
-                ota_emit_status("OTA started successfully");
-            } else {
-                ota_emit_status("OTA start failed");
+            {
+                uint32_t firmware_size = 
+                    (data[1]) | 
+                    (data[2] << 8) | 
+                    (data[3] << 16) | 
+                    (data[4] << 24);
+
+                // Disable all ISRs but BLE
+                main_ota_init();
+                
+                // Start OTA update
+                if (ota_begin(
+                    firmware_size,
+                    ota_progress_callback,
+                    ota_status_callback,
+                    ota_completion_callback)
+                ) {
+                    ota_emit_status("OTA started successfully", false);
+                } else {
+                    ota_emit_status("OTA start failed", true);
+                }
             }
             break;
-            
+
         case 0x02: // End OTA
             if (ota_end()) {
-                ota_emit_status("OTA completed successfully");
+                ota_emit_status("OTA completed successfully", false);
             } else {
-                ota_emit_status("OTA completion failed");
+                ota_emit_status("OTA completion failed", true);
             }
             break;
             
-        case 0x03: // Switch and reboot
-            ota_switch_and_reboot();
-            break;
-            
-        case 0x04: // Abort OTA
+        case 0x03: // Abort OTA
             ota_abort();
-            ota_emit_status("OTA aborted by command");
-            break;
-            
-        case 0x05: // Get OTA status
-            {
-                char status_msg[128];
-                snprintf(status_msg, sizeof(status_msg),
-                         "OTA Status: %s, Progress: %d/%d bytes",
-                         ota_is_in_progress() ? "In progress" : "Idle",
-                         ota_get_bytes_received(), ota_get_total_size());
-                ota_emit_status(status_msg);
-            }
+            ota_emit_status("OTA aborted by command", false);
             break;
             
         default:
@@ -346,7 +402,7 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
                 char error_msg[64];
                 snprintf(error_msg, sizeof(error_msg),
                          "Unknown OTA control command: 0x%02x", data[0]);
-                ota_emit_status(error_msg);
+                ota_emit_status(error_msg, true);
             }
             break;
     }
@@ -355,38 +411,32 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
 void set_ota_data_ble_write(const uint8_t* data, size_t length)
 {
     if (!ota_write((uint8_t*)data, length)) {
-        ota_emit_status("OTA data write failed");
+        ota_emit_status("OTA data write failed", true);
     }
 }
 
-/**
- * @brief OTA progress callback function.
- * 
- * @param received Number of bytes received.
- * @param total Total number of bytes expected.
- */
 void ota_progress_callback(size_t received, size_t total) {
-    Serial.printf("OTA Progress: %d/%d bytes (%.1f%%)\n", 
-                 received, total, (received * 100.0) / total);
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG,
+        "OTA Progress: %d/%d bytes (%.1f%%)", 
+        received,
+        total,
+        (received * 100.0) / total);
+    #endif
 }
 
-/**
- * @brief OTA status callback function.
- * 
- * @param status Status message.
- */
-void ota_status_callback(const char* status) {
-    Serial.printf("OTA: %s\n", status);
+void ota_status_callback(const char* status, bool is_error) {
+    if (is_error)
+        ESP_LOGE(TAG, "OTA: %s", status);
+    else
+        ESP_LOGI(TAG, "OTA: %s", status);
 }
 
-/**
- * @brief OTA completion callback function.
- * 
- * @param success true if OTA completed successfully.
- * @param message Completion message.
- */
 void ota_completion_callback(bool success, const char* message) {
-    Serial.printf("OTA %s: %s\n", success ? "SUCCESS" : "FAILED", message);
+    if (!success)
+        ESP_LOGE(TAG, "OTA FAILED: %s", message);
+    else
+        ESP_LOGI(TAG, "OTA SUCCESS: %s", message);
 }
 
 void main_ble_init()

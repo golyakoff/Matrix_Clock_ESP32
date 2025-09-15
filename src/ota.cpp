@@ -8,103 +8,13 @@
 #include "version.h"
 
 // Static variables for OTA state management
-static ota_config_t ota_config = {0};
-static bool ota_in_progress = false;
-static size_t ota_bytes_received = 0;
-static size_t ota_total_size = 0;
-static const esp_partition_t* target_partition = NULL;
+static bool   _ota_in_progress    = false;
+static size_t _firmware_bytes_received = 0;
+static size_t _firmware_total_size     = 0;
 
-/**
- * @brief Internal function to find and validate the target OTA partition.
- * 
- * @return const esp_partition_t* Pointer to the target partition, or NULL if not found.
- */
-static const esp_partition_t* get_target_partition() {
-    const esp_partition_t* running = esp_ota_get_running_partition();
-    if (!running) {
-        ota_emit_status("Running partition not found");
-        return NULL;
-    }
-
-    // Select the opposite OTA partition for update
-    esp_partition_subtype_t target_subtype = 
-        (running->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_0) ?
-        ESP_PARTITION_SUBTYPE_APP_OTA_1 : ESP_PARTITION_SUBTYPE_APP_OTA_0;
-
-    const esp_partition_t* partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, target_subtype, NULL);
-    
-    if (!partition) {
-        ota_emit_status("Target OTA partition not found");
-    }
-    
-    return partition;
-}
-
-/**
- * @brief Internal function to save OTA update information to NVS storage.
- * 
- * @return true if update information was saved successfully.
- * @return false if saving to NVS failed.
- */
-static bool save_update_info() {
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open("ota_info", NVS_READWRITE, &nvs_handle);
-    if (err != ESP_OK) {
-        ota_emit_status("Failed to open NVS for update info");
-        return false;
-    }
-
-    // Save previous firmware version
-    err = nvs_set_str(nvs_handle, "prev_version", MATRIX_CLOCK_FIRMWARE_VERSION);
-    if (err != ESP_OK) {
-        nvs_close(nvs_handle);
-        ota_emit_status("Failed to save previous version");
-        return false;
-    }
-
-    // Save update timestamp
-    err = nvs_set_u32(nvs_handle, "update_time", (uint32_t)time(NULL));
-    if (err != ESP_OK) {
-        nvs_close(nvs_handle);
-        ota_emit_status("Failed to save update time");
-        return false;
-    }
-
-    // Commit changes to NVS
-    err = nvs_commit(nvs_handle);
-    nvs_close(nvs_handle);
-
-    if (err != ESP_OK) {
-        ota_emit_status("Failed to commit update info");
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * @brief Initializes the OTA update system with the provided configuration.
- * 
- * @param config Pointer to the OTA configuration structure containing callback functions.
- *               If NULL, default configuration will be used.
- */
-void ota_init(const ota_config_t* config) {
-    // Initialize with provided configuration or defaults
-    if (config) {
-        ota_config = *config;
-    }
-
-    // Initialize NVS flash storage
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        // Erase and reinitialize NVS if needed
-        nvs_flash_erase();
-        nvs_flash_init();
-    }
-
-    ota_emit_status("OTA system initialized");
-}
+static ota_progress_cb_t _on_ota_progress_cb  = nullptr;
+static ota_status_cb_t _on_ota_status_cb = nullptr;
+static ota_complete_cb_t _on_ota_complete_cb = nullptr;
 
 /**
  * @brief Begins the OTA update process and prepares for firmware data reception.
@@ -112,40 +22,44 @@ void ota_init(const ota_config_t* config) {
  * @return true if OTA process started successfully.
  * @return false if OTA process failed to start or another update is already in progress.
  */
-bool ota_begin() {
-    if (ota_in_progress) {
-        ota_emit_status("OTA already in progress");
+bool ota_begin(
+    size_t firmware_size,
+    ota_progress_cb_t on_ota_progress_cb,
+    ota_status_cb_t on_ota_status_cb,
+    ota_complete_cb_t on_ota_complete_cb
+) {
+    if (_ota_in_progress) {
+        ota_emit_status("OTA already in progress", true);
         return false;
     }
 
-    // Find and validate target partition
-    // target_partition = get_target_partition();
-    // if (!target_partition) {
-    //     ota_emit_status("Failed to find target partition");
-    //     return false;
-    // }
-
     // Initialize OTA state variables
-    ota_total_size = 1277056;
-    ota_bytes_received = 0;
-    ota_in_progress = true;
+    _firmware_total_size = firmware_size;
+    _firmware_bytes_received = 0;
+    _ota_in_progress = true;
+
+    // Initialize OTA callbacks
+    _on_ota_progress_cb = on_ota_progress_cb;
+    _on_ota_status_cb = on_ota_status_cb;
+    _on_ota_complete_cb = on_ota_complete_cb;    
 
     // Log partition information
     char status_msg[128];
-    snprintf(status_msg, sizeof(status_msg), 
-             "Starting OTA update to partition U_FLASH, size: %d bytes", 
-             ota_total_size);
-    ota_emit_status(status_msg);
+    snprintf(
+        status_msg, sizeof(status_msg), 
+        "Starting OTA update to partition U_FLASH, size: %d bytes", 
+        _firmware_total_size);
+    ota_emit_status(status_msg, false);
 
     // Begin the update process
-    if (!Update.begin(ota_total_size, U_FLASH)) {
-        ota_emit_status("Update.begin() failed");
-        ota_in_progress = false;
+    if (!Update.begin(_firmware_total_size, U_FLASH)) {
+        ota_emit_status("Update.begin() failed", true);
+        _ota_in_progress = false;
         return false;
     }
 
     // Emit initial progress
-    ota_emit_progress(0, ota_total_size);
+    ota_emit_progress(0, _firmware_total_size);
     return true;
 }
 
@@ -158,13 +72,13 @@ bool ota_begin() {
  * @return false if write operation failed or OTA process is not active.
  */
 bool ota_write(uint8_t* data, size_t length) {
-    if (!ota_in_progress) {
-        ota_emit_status("OTA not started");
+    if (!_ota_in_progress) {
+        ota_emit_status("OTA not started", true);
         return false;
     }
 
     if (data == NULL || length == 0) {
-        ota_emit_status("Invalid data parameters");
+        ota_emit_status("Invalid data parameters", true);
         return false;
     }
 
@@ -176,14 +90,14 @@ bool ota_write(uint8_t* data, size_t length) {
         char error_msg[64];
         snprintf(error_msg, sizeof(error_msg), 
                  "Write failed: wrote %d of %d bytes", written, length);
-        ota_emit_status(error_msg);
+        ota_emit_status(error_msg, true);
         ota_abort();
         return false;
     }
 
     // Update progress and emit callback
-    ota_bytes_received += written;
-    ota_emit_progress(ota_bytes_received, ota_total_size);
+    _firmware_bytes_received += written;
+    ota_emit_progress(_firmware_bytes_received, _firmware_total_size);
     return true;
 }
 
@@ -194,44 +108,61 @@ bool ota_write(uint8_t* data, size_t length) {
  * @return false if OTA completion failed or firmware validation failed.
  */
 bool ota_end() {
-    if (!ota_in_progress) {
-        ota_emit_status("OTA not started");
+    if (!_ota_in_progress) {
+        ota_emit_status("OTA not started", true);
         return false;
     }
 
     // Finalize the update process
     if (!Update.end()) {
-        ota_emit_status("Update.end() failed");
+        ota_emit_status("Update.end() failed", true);
         ota_abort();
         return false;
     }
 
     // Verify that the update completed successfully
     if (!Update.isFinished()) {
-        ota_emit_status("Update not finished");
+        ota_emit_status("Update not finished", true);
         ota_abort();
         return false;
     }
 
     // Validate the received firmware
     if (!ota_validate_firmware()) {
-        ota_emit_status("Firmware validation failed");
+        ota_emit_status("Firmware validation failed", true);
         ota_abort();
         return false;
     }
 
-    // Save update information to NVS
-    if (!save_update_info()) {
-        ota_emit_status("Failed to save update info, but OTA completed");
-    }
-
     // Emit completion events
-    ota_emit_status("OTA update completed successfully");
-    ota_emit_progress(ota_total_size, ota_total_size);
-    ota_emit_complete(true, "Update completed successfully");
+    ota_emit_progress(_firmware_total_size, _firmware_total_size);
+    ota_emit_complete(true, "OTA update completed successfully");
     
     // Reset OTA state
-    ota_in_progress = false;
+    _ota_in_progress = false;
+
+    // Find the next partition to boot from
+    const esp_partition_t* next_partition = esp_ota_get_next_update_partition(NULL);
+    if (!next_partition) {
+        ota_emit_status("Failed to find next partition for boot", true);
+        return false;
+    }
+
+    // Set the boot partition to the updated firmware
+    esp_err_t err = esp_ota_set_boot_partition(next_partition);
+    if (err != ESP_OK) {
+        char error_msg[64];
+        snprintf(error_msg, sizeof(error_msg), 
+                 "Failed to set boot partition: 0x%x", err);
+        ota_emit_status(error_msg, true);
+        return false;
+    }
+
+    // Notify and reboot
+    ota_emit_status("Switching to new firmware and rebooting...", false);
+    delay(1000);
+    ESP.restart();
+
     return true;
 }
 
@@ -240,18 +171,17 @@ bool ota_end() {
  *        Any partially written firmware will be discarded.
  */
 void ota_abort() {
-    if (ota_in_progress) {
+    if (_ota_in_progress) {
         // Abort the update and clean up resources
         Update.end(false);
-        ota_emit_status("OTA update aborted");
+        ota_emit_status("OTA update aborted", true);
         ota_emit_complete(false, "Update aborted");
     }
     
     // Reset all state variables
-    ota_in_progress = false;
-    ota_bytes_received = 0;
-    ota_total_size = 0;
-    target_partition = NULL;
+    _ota_in_progress = false;
+    _firmware_bytes_received = 0;
+    _firmware_total_size = 0;
 }
 
 /**
@@ -272,14 +202,14 @@ const char* ota_get_current_version() {
  */
 bool ota_validate_firmware() {
     // Check if there's any firmware to validate
-    if (!ota_in_progress && ota_bytes_received == 0) {
-        ota_emit_status("No firmware to validate");
+    if (!_ota_in_progress && _firmware_bytes_received == 0) {
+        ota_emit_status("No firmware to validate", true);
         return false;
     }
 
     // Basic size validation - firmware should be at least 1KB
-    if (ota_bytes_received < 1024) {
-        ota_emit_status("Firmware too small to be valid");
+    if (_firmware_bytes_received != _firmware_total_size) {
+        ota_emit_status("Firmware bytes received count not equals to the expected firmware size", true);
         return false;
     }
 
@@ -292,47 +222,19 @@ bool ota_validate_firmware() {
     // Get running partition information for validation
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (!running) {
-        ota_emit_status("Cannot get running partition for validation");
+        ota_emit_status("Cannot get running partition for validation", true);
         return false;
     }
 
     // Retrieve partition description for additional validation
     esp_app_desc_t running_app_info;
     if (esp_ota_get_partition_description(running, &running_app_info) != ESP_OK) {
-        ota_emit_status("Failed to get partition description");
+        ota_emit_status("Failed to get partition description", true);
         return false;
     }
 
-    ota_emit_status("Firmware validation passed");
+    ota_emit_status("Firmware validation passed", true);
     return true;
-}
-
-/**
- * @brief Switches to the newly updated firmware and reboots the device.
- *        This function does not return if successful.
- */
-void ota_switch_and_reboot() {
-    // Find the next partition to boot from
-    const esp_partition_t* next_partition = esp_ota_get_next_update_partition(NULL);
-    if (!next_partition) {
-        ota_emit_status("Failed to find next partition for boot");
-        return;
-    }
-
-    // Set the boot partition to the updated firmware
-    esp_err_t err = esp_ota_set_boot_partition(next_partition);
-    if (err != ESP_OK) {
-        char error_msg[64];
-        snprintf(error_msg, sizeof(error_msg), 
-                 "Failed to set boot partition: 0x%x", err);
-        ota_emit_status(error_msg);
-        return;
-    }
-
-    // Notify and reboot
-    ota_emit_status("Switching to new firmware and rebooting...");
-    delay(1000);
-    ESP.restart();
 }
 
 /**
@@ -342,7 +244,7 @@ void ota_switch_and_reboot() {
  * @return false if no OTA update is in progress.
  */
 bool ota_is_in_progress() {
-    return ota_in_progress;
+    return _ota_in_progress;
 }
 
 /**
@@ -352,7 +254,7 @@ bool ota_is_in_progress() {
  *         Returns 0 if no OTA update is in progress.
  */
 size_t ota_get_bytes_received() {
-    return ota_bytes_received;
+    return _firmware_bytes_received;
 }
 
 /**
@@ -362,7 +264,7 @@ size_t ota_get_bytes_received() {
  *         Returns 0 if total size is unknown or no OTA update is in progress.
  */
 size_t ota_get_total_size() {
-    return ota_total_size;
+    return _firmware_total_size;
 }
 
 /**
@@ -370,11 +272,10 @@ size_t ota_get_total_size() {
  * 
  * @param status Null-terminated string containing the status message.
  */
-void ota_emit_status(const char* status) {
-    if (ota_config.status_cb) {
-        ota_config.status_cb(status);
+void ota_emit_status(const char* status, bool is_error) {
+    if (_on_ota_status_cb) {
+        _on_ota_status_cb(status, is_error);
     }
-    Serial.printf("OTA Status: %s\n", status);
 }
 
 /**
@@ -384,14 +285,8 @@ void ota_emit_status(const char* status) {
  * @param total Total number of bytes expected.
  */
 void ota_emit_progress(size_t received, size_t total) {
-    if (ota_config.progress_cb) {
-        ota_config.progress_cb(received, total);
-    }
-    
-    // Log progress every 4KB to avoid spamming
-    if (received % 4096 == 0) {
-        Serial.printf("OTA Progress: %d/%d bytes (%.1f%%)\n", 
-                     received, total, (received * 100.0) / total);
+    if (_on_ota_progress_cb) {
+        _on_ota_progress_cb(received, total);
     }
 }
 
@@ -402,8 +297,7 @@ void ota_emit_progress(size_t received, size_t total) {
  * @param message Null-terminated string containing completion message.
  */
 void ota_emit_complete(bool success, const char* message) {
-    if (ota_config.complete_cb) {
-        ota_config.complete_cb(success, message);
+    if (_on_ota_complete_cb) {
+        _on_ota_complete_cb(success, message);
     }
-    Serial.printf("OTA Complete: %s - %s\n", success ? "SUCCESS" : "FAILED", message);
 }

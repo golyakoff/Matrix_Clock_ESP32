@@ -1,9 +1,12 @@
 #include <Arduino.h>
 #include <PxMatrix.h>
 #include <TetrisMatrixDraw.h>
+#include <esp_log.h>
 
 #include "time_helper.h"
 #include "matrix.h"
+
+static const char* TAG = "MATRIX";
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 hw_timer_t *timer = NULL;
@@ -62,8 +65,7 @@ void matrix_init(struct tm *init_dt)
 
     //analogReadResolution(10);
     if (!adcAttachPin(LDR_PIN))
-        Serial.println(F("Error: adcAttachPin(LDR_PIN) returned FALSE."));
-    
+        ESP_LOGE(TAG, "Error: adcAttachPin(LDR_PIN) returned FALSE.");   
 
     // Initialize display library
     display.begin(16); // Generic ESP32 including Huzzah
@@ -85,7 +87,7 @@ void matrix_init(struct tm *init_dt)
     delay(2000);
 
     // Start the Animation Timer
-    tetris.setText("GOLYAKOFF");
+    tetris.setText(F("GOLYAKOFF"));
     animationTimer = timerBegin(1, 80, true);
     timerAttachInterrupt(animationTimer, &animation_handler, true);
     timerAlarmWrite(animationTimer, 100000, true);
@@ -101,6 +103,33 @@ void matrix_init(struct tm *init_dt)
     _finished_animating = false;
     _display_intro = false;
     tetris.scale = 2;
+}
+
+void matrix_unload() {
+    ESP_LOGI(TAG, "Unloading matrix display for OTA... ");
+
+    display.clearDisplay();
+    display.flushDisplay();
+    display.setBrightness(0);
+
+    if (animationTimer) {
+        timerAlarmDisable(animationTimer);
+        timerDetachInterrupt(animationTimer);
+        timerEnd(animationTimer);
+        animationTimer = NULL;
+    }
+
+    if (timer) {
+        timerAlarmDisable(timer);
+        timerDetachInterrupt(timer);
+        timerEnd(timer);
+        timer = NULL;
+    }
+
+    _finished_animating = true;
+    _display_intro = false;
+
+    ESP_LOGI(TAG, "OK: Unloaded");
 }
 
 void IRAM_ATTR matrix_1hz_isr_loop()
@@ -233,13 +262,8 @@ void draw_intro(int x = 0, int y = 0)
 
 void set_matrix_time()
 {
-    // Debug info
-    // Serial.printf("timeString: %s\n", buffer);
-    // Serial.printf("lastDisplayedTime: %s\n", lastDisplayedTime);
-    // println_tm("_dt", &_dt);
-
     mktime(&_dt); // normalize it
-    println_tm("_dt", &_dt);
+    log_tm(TAG, "_dt", &_dt);
 
     strftime(_matrix_time_buffer, sizeof(_matrix_time_buffer), "%H:%M", &_dt);
     tetris.setTime(String(_matrix_time_buffer), FORCE_UPDATE_ALL_DIGITS);
@@ -268,8 +292,12 @@ void check_brightness_tick()
         if (_use_auto_brightness)
         {
             uint16_t adc_var_val = analogRead(LDR_PIN);
-            Serial.printf("ADC value from LDR is %d\n", adc_var_val);
+            
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "ADC value from LDR is %d", adc_var_val);
+            #endif
 
+            // TODO: Realize auto-adjust brightness
             // _brightness = map(
             //     adc_var_val,
             //     0, ADC_SCALE,
@@ -288,7 +316,11 @@ void check_brightness_tick()
     if (_brightness != _brightness_last)
     {
         display.setBrightness(_brightness);
-        Serial.printf("Brightness updated with value %d\n", _brightness);
+
+        #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+        ESP_LOGD(TAG, "Brightness updated with value %d", _brightness);
+        #endif
+
         _brightness_last = _brightness;
     }
 }
