@@ -1,5 +1,8 @@
 #include "alarm.h"
 #include "HardwareSerial.h"
+#include <esp_log.h>
+
+static const char* TAG = "ALARM";
 
 Alarm::Alarm(alarmCallback_t callback)
 {
@@ -19,11 +22,13 @@ void Alarm::set(uint8_t hours, uint8_t minutes, bool active)
     _active = active;
     _alreadyFired = false;
     
-    Serial.printf(
-        "ALARM: Called set(hours=%02d, minutes=%02d, active=%s)\n", 
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG,
+        "Called set(hours=%02d, minutes=%02d, active=%s)", 
         hours,
         minutes,
         active ? "true" : "false");
+    #endif
 }
 
 void Alarm::get(uint8_t *hours, uint8_t *minutes, bool *active)
@@ -46,9 +51,15 @@ void Alarm::tick(const tm *dt)
         _alreadyFired = true;
         if (_callback != nullptr)
         {
-            Serial.printf("ALARM: Calling _callback (%02d:%02d)...\n", _hours, _minutes);
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling _callback (%02d:%02d)...", _hours, _minutes);
+            #endif
+
             _callback(_hours, _minutes);
-            Serial.println(F("ALARM: OK"));
+            
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK (callback called)");
+            #endif
         }
     }
     

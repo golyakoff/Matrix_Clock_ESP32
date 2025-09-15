@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <Wire.h>
 #include <ErriezDS3231.h>
+#include <esp_log.h>
 
 #include "rtc.h"
 
@@ -13,6 +14,8 @@
 #define RTC_MEMORY_MANUAL_BRIGHT_MASK           0b00001111
 #define RTC_MEMORY_IS_AUTO_BRIGHT_MASK          0b00010000
 #define RTC_MEMORY_SHOW_MASK                    0b00000001
+
+static const char* TAG = "RTC";
 
 bool RealTimeClock::init(int sdaPin, int sclPin, uint32_t frequency)
 {
@@ -48,6 +51,8 @@ bool RealTimeClock::init(int sdaPin, int sclPin, uint32_t frequency)
 
     return ok;
 }
+
+void disableInterrupts();
 
 bool RealTimeClock::getTime(struct tm *dt_out)
 {
@@ -166,7 +171,7 @@ struct tm RealTimeClock::getBuildTime()
 // RTC init with debug messages
 void RealTimeClock::testAlarmSaveLoad(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
 {
-    Serial.printf("RTC MEMORY alarm %d test: write and read alarm time %02d:%02d, active:%d ", index, hours, minutes, active);
+    ESP_LOGD(TAG, "RTC MEMORY alarm %d test: write and read alarm time %02d:%02d, active:%d ", index, hours, minutes, active);
 
     uint8_t actual_hours = 0;
     uint8_t actual_minutes = 0;
@@ -174,32 +179,32 @@ void RealTimeClock::testAlarmSaveLoad(rtc_alarm_index_t index, uint8_t hours, ui
 
     if(!saveAlarm(index, hours, minutes, active))
     {
-        Serial.println(F("-> Error: saveAlarm()!"));
+        ESP_LOGE(TAG, "-> Error: saveAlarm()!");
         for(;;) { delay(5000); }
     }
 
     if(!loadAlarm(index, &actual_hours, &actual_minutes, &actual_is_active))
     {
-        Serial.println(F("-> Error: loadAlarm()"));
+        ESP_LOGE(TAG, "-> Error: loadAlarm()");
         for(;;) { delay(5000); }
     }
 
     if (hours != actual_hours || minutes != actual_minutes || active != actual_is_active)
     {
-        Serial.printf(
-            "->Error: actual hours = %d, actual minutes = %d, actual active = %d \n",
+        ESP_LOGE(TAG,
+            "->Error: actual hours = %d, actual minutes = %d, actual active = %d",
             actual_hours,
             actual_minutes,
             active);
         for(;;) { delay(5000); }
     }
 
-    Serial.println(F("OK"));
+    ESP_LOGD(TAG, "OK");
 }
 
 void RealTimeClock::testBrightnessSaveLoad(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
-    Serial.printf(
+    ESP_LOGD(TAG,        
         "RTC MEMORY bright test: use_auto_brightness = %d, manual_brightness_value = %d ",
         use_auto_brightness,
         manual_brightness_value);
@@ -209,27 +214,27 @@ void RealTimeClock::testBrightnessSaveLoad(bool use_auto_brightness, uint8_t man
 
     if(!saveBrightness(use_auto_brightness, manual_brightness_value))
     {
-        Serial.println(F("-> Error: saveBrightness()!"));
+        ESP_LOGE(TAG, "-> Error: saveBrightness()!");
         for(;;) { delay(5000); }
     }
 
     if(!loadBrightness(&actual_use_auto_brightness, &actual_manual_brightness_value))
     {
-        Serial.println(F("-> Error: loadAlarm()"));
+        ESP_LOGE(TAG, "-> Error: loadAlarm()");
         for(;;) { delay(5000); }
     }
 
     if (use_auto_brightness != actual_use_auto_brightness || manual_brightness_value != actual_manual_brightness_value)
     {
-        Serial.printf(
-            "->Error: actual use_auto_brightness = %d, actual manual_brightness_value = %d \n",
+        ESP_LOGE(TAG,
+            "->Error: actual use_auto_brightness = %d, actual manual_brightness_value = %d",
             actual_use_auto_brightness,
             actual_manual_brightness_value);
 
         for(;;) { delay(5000); }
     }
 
-    Serial.println(F("OK"));
+    ESP_LOGD(TAG, "OK");
 }
 
 #endif // DEBUG_RTC_MEMORY

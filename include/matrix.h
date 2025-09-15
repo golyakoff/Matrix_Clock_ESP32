@@ -55,6 +55,11 @@
 void matrix_init(struct tm *init_dt);
 
 /**
+ * @brief Unload matrix instance, detach ISRs, stop timers.
+ */
+void matrix_unload();
+
+/**
  * @brief This methods should be called from ISR from RTC every second.
  *        It increments the internal time of the matrix by 1 second
  *        and inverts the "show colon" variable.

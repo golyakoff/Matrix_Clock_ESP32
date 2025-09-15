@@ -4,12 +4,15 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <string.h>
+#include <esp_log.h>
 
 #include "time_helper.h"
 #include "ble.h"
 
 #define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
 #define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
+
+static const char* TAG = "BLE";
 
 // BLE Transmission Type: LSO: Least Significant Octet First
 
@@ -72,7 +75,7 @@ class MyServerCallbacks: public BLEServerCallbacks
     void onConnect(BLEServer* pServer)
     {
         _device_connected = true;
-        Serial.println(F("BLE device connected"));
+        ESP_LOGI(TAG, "BLE device connected");
 
         // Translate the firmware version
         ble_update_firmware_version();
@@ -81,7 +84,7 @@ class MyServerCallbacks: public BLEServerCallbacks
     void onDisconnect(BLEServer* pServer)
     {
         _device_connected = false;
-        Serial.println(F("BLE device disconnected"));
+        ESP_LOGI(TAG, "BLE device disconnected");
 
         start_advertising(pServer);
     }
@@ -95,7 +98,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (_set_time_on_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_time_on_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_time_on_ble_write is nullptr.");
                 return;
             }
 
@@ -104,8 +107,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             _mct_char_value |= param->write.value[2] << 16;
             _mct_char_value |= param->write.value[3] << 24;
             
-            Serial.printf(
-                "Write callback for char (%s), raw array (LSO): 0x%02x 0x%02x 0x%02x 0x%02x, uint32_t: 0x%08x (%d)\n",
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG,
+                "Write callback for char (%s), raw array (LSO): 0x%02x 0x%02x 0x%02x 0x%02x, uint32_t: 0x%08x (%d)",
                 pCharacteristic->getUUID().toString().c_str(),
                 param->write.value[3],
                 param->write.value[2],
@@ -113,12 +117,17 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 param->write.value[0],
                 _mct_char_value,
                 _mct_char_value);
+            ESP_LOGD(TAG, "Calling callback _set_time_on_ble_write(dt)...");
+            #endif
 
-            Serial.println(F("Calling callback _set_time_on_ble_write(dt)... "));
             time_t tim = (time_t)_mct_char_value;
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
             tm *dt = gmtime(&tim);
             _set_time_on_ble_write(dt);
-            Serial.println(F("OK"));
             return;
         }
         
@@ -126,19 +135,26 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (param->write.value[0] > 1)
             {
-                Serial.println(F("Error, value of _mctnc_char provided is out of range [0, 1]."));
+                ESP_LOGE(TAG, "Error, value of _mctnc_char provided is out of range [0, 1].");
                 return;
             }
 
             if (_set_time_on_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_show_on_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_show_on_ble_write is nullptr.");
                 return;
             }
 
-            Serial.println(F("Calling callback _set_show_on_ble_write(bool)... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_show_on_ble_write(bool)...");
+            #endif
+
             _set_show_on_ble_write(param->write.value[0] == 1);
-            Serial.println(F("OK"));
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
             return;
         }
 
@@ -146,19 +162,26 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (param->write.value[0] > 1)
             {
-                Serial.println(F("Error, value of _mcabe_char provided is out of range [0, 1]."));
+                ESP_LOGE(TAG, "Error, value of _mcabe_char provided is out of range [0, 1].");
                 return;
             }
 
             if (_set_auto_bright_en_on_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_auto_bright_en_on_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_auto_bright_en_on_ble_write is nullptr.");
                 return;
             }
 
-            Serial.println(F("Calling callback _set_auto_bright_en_on_ble_write(bool)... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_auto_bright_en_on_ble_write(bool)...");
+            #endif
+
             _set_auto_bright_en_on_ble_write(param->write.value[0] == 1);
-            Serial.println(F("OK"));
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
             return;
         }
 
@@ -166,13 +189,20 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (_set_manual_bright_val_on_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_manual_bright_val_on_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_manual_bright_val_on_ble_write is nullptr.");
                 return;
             }
 
-            Serial.println(F("Calling callback _set_manual_bright_val_on_ble_write(uint8_t)... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_manual_bright_val_on_ble_write(uint8_t)...");
+            #endif
+
             _set_manual_bright_val_on_ble_write(param->write.value[0]);
-            Serial.println(F("OK"));
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+            
             return;
         }
 
@@ -182,15 +212,20 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (_set_alarm_on_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_alarm_on_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_alarm_on_ble_write is nullptr.");
                 return;
             }
 
-            Serial.printf("BLE::onWrite for alarm: Bytes: h = %02x l = %02x", param->write.value[1], param->write.value[0]);
             uint16_t result = ((uint16_t)(param->write.value[1]) << 8) + param->write.value[0];
-
-            Serial.printf("BLE::onWrite for alarm: uint16_t result = %d", result);
             
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, 
+                "BLE::onWrite for alarm: Bytes: h = %02x l = %02x, int16_t result = %d", 
+                param->write.value[1],
+                param->write.value[0],
+                result);
+            #endif
+           
             bool active = (result & BLE_ALARM_IS_ACTIVE_MASK) > 0;
             uint8_t hours = (result & BLE_ALARM_TOTAL_MINUTES_MASK) / 60;
             uint8_t minutes = (result & BLE_ALARM_TOTAL_MINUTES_MASK) % 60;
@@ -198,10 +233,16 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 ? ble_alarm_index_off
                 : ble_alarm_index_on;
 
-            Serial.println(F("Calling callback _set_alarm_on_ble_write()... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_alarm_on_ble_write()...");
+            #endif
+
             _set_alarm_on_ble_write(index, hours, minutes, active);
             
-            Serial.println(F("OK"));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+            
             return;
         }
 
@@ -209,49 +250,69 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         {
             if (_set_rtc_aging_offset_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_rtc_aging_offset_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_rtc_aging_offset_ble_write is nullptr.");
                 return;
             }
 
-            Serial.printf("BLE::onWrite for RTC aging offset: Byte: %02x", param->write.value[0]);
-            
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "BLE::onWrite for RTC aging offset: Byte: %02x", param->write.value[0]);
+            #endif
+
             int8_t result = (int8_t)param->write.value[0];
-            Serial.printf("BLE::onWrite for RTC aging offset: = %d", result);
             
-            Serial.println(F("Calling callback _set_rtc_aging_offset_ble_write()... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "BLE::onWrite for RTC aging offset: = %d", result);
+            ESP_LOGD(TAG, "Calling callback _set_rtc_aging_offset_ble_write()...");
+            #endif
+
             _set_rtc_aging_offset_ble_write(result);
             
-            Serial.println(F("OK"));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+            
             return;
         }
 
         if(pCharacteristic->getUUID().equals(_mcotac_char.getUUID())) {
             if (_set_ota_control_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_ota_control_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_ota_control_ble_write is nullptr.");
                 return;
             }
 
-            Serial.println(F("Calling callback _set_ota_control_ble_write()... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_ota_control_ble_write()...");
+            #endif
+
             _set_ota_control_ble_write(param->write.value, param->write.len);
 
-            Serial.println(F("OK"));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
             return;
         }
 
         if(pCharacteristic->getUUID().equals(_mcotad_char.getUUID())) {
             if (_set_ota_data_ble_write == nullptr)
             {
-                Serial.println(F("Error: callback _set_ota_data_ble_write is nullptr."));
+                ESP_LOGE(TAG, "Error: callback _set_ota_data_ble_write is nullptr.");
                 return;
             }
 
             delay(2);
 
-            //Serial.println(F("Calling callback _set_ota_data_ble_write()... "));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_ota_data_ble_write()...");
+            #endif
+            
             _set_ota_data_ble_write(param->write.value, param->write.len);
 
-            //Serial.println(F("OK"));
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+            
             return;
         }
     }
@@ -362,113 +423,93 @@ void ble_init(
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
 
     // Create the BLE Device
-    Serial.printf("Initialize BLE Device '%s'... ", BLE_SERVER_NAME);
+    ESP_LOGI(TAG, "Initialize BLE device '%s'...", BLE_SERVER_NAME);
     BLEDevice::init(BLE_SERVER_NAME);
-    Serial.println(F("OK"));
+    ESP_LOGI(TAG, "OK (BLE device initialized)");
 
-    Serial.printf("Set MTU to '%d'... ", BLE_DEVICE_MTU);
+    ESP_LOGI(TAG, "Set MTU to '%d'...", BLE_DEVICE_MTU);
     BLEDevice::setMTU(BLE_DEVICE_MTU);
-    Serial.printf("Actual MTU value now: '%d': ", BLEDevice::getMTU());
-    Serial.println(F("OK"));
-
+    ESP_LOGI(TAG, "OK (actual MTU value now: %d)", BLEDevice::getMTU());
+    
     // Create the BLE Server
-    Serial.print(F("Create BLE Server... "));
+    ESP_LOGI(TAG, "Create BLE server...");
     BLEServer *pServer = BLEDevice::createServer();
     pServer->setCallbacks(&_myServerCallbacks);
-    Serial.println(F("OK"));
+    ESP_LOGI(TAG, "OK (BLE server created)");
 
-    Serial.print(F("Create Primary Service... "));
+    ESP_LOGI(TAG, "Create primary service...");
     BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 30U, 0U);
-    Serial.print(F("OK: "));
-    Serial.println(bleService->toString().c_str());
+    ESP_LOGI(TAG, "OK (primary service '%s' created)", bleService->toString().c_str());
 
-    Serial.print(F("Add MatrixClock Time char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Time characteristic...");
     bleService->addCharacteristic(&_mct_char);
     _mct_char.addDescriptor(new BLE2902());
     _mct_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mct_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mct_char.toString().c_str());
     
-    Serial.print(F("Add MatrixClock Time String char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Time String characteristic...");
     bleService->addCharacteristic(&_mcts_char);
     _mcts_char.addDescriptor(new BLE2902());
-    Serial.print(F("OK: "));
-    Serial.println(_mcts_char.toString().c_str());
+    ESP_LOGI(TAG,  "OK: %s", _mcts_char.toString().c_str());
 
-    // Add MatrixClock Turn Off Alarm characteristic
-    Serial.print(F("Add MatrixClock Turn Off Alarm char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Turn Off Alarm characteristic...");
     bleService->addCharacteristic(&_mctofa_char);
     _mctofa_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mctofa_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mctofa_char.toString().c_str());
 
-    // Add MatrixClock Turn On Alarm characteristic
-    Serial.print(F("Add MatrixClock Turn On Alarm char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Turn On Alarm characteristic...");
     bleService->addCharacteristic(&_mctona_char);
     _mctona_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mctona_char.toString().c_str());
-
-    // Add MatrixClock Turn On/Off Control characteristic
-    Serial.print(F("Add MatrixClock Turn On/Off Control char... "));
+    ESP_LOGI(TAG, "OK: %s", _mctona_char.toString().c_str());
+    
+    ESP_LOGI(TAG, "Add MatrixClock Turn On/Off Control characteristic...");
     bleService->addCharacteristic(&_mctnc_char);
     _mctnc_char.addDescriptor(new BLE2902());
     _mctnc_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mctnc_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mctnc_char.toString().c_str());
 
     // Add MatrixClock Turn On Auto Brightness Control characteristic
-    Serial.print(F("Add MatrixClock Turn On Auto Brightness char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Turn On Auto Brightness characteristic...");
     bleService->addCharacteristic(&_mcabe_char);
     _mcabe_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mcabe_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mcabe_char.toString().c_str());
 
-    // Add MatrixClock Manual Brightness Value Control characteristic
-    Serial.print(F("Add MatrixClock Manual Brightness Value char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Manual Brightness Value characteristic...");
     bleService->addCharacteristic(&_mcmbv_char);
     _mcmbv_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mcmbv_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mcmbv_char.toString().c_str());
 
-    // Add MatrixClock RTC Temperature Value characteristic
-    Serial.print(F("Add MatrixClock RTC Temperature Value char... "));
+    ESP_LOGI(TAG, "Add MatrixClock RTC Temperature Value characteristic...");
     bleService->addCharacteristic(&_mctt_char);
     _mctt_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mctt_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mctt_char.toString().c_str());
 
-    // Add MatrixClock RTC Aging Offset Value characteristic
-    Serial.print(F("Add MatrixClock RTC Aging Offset Value char... "));
+    ESP_LOGI(TAG, "Add MatrixClock RTC Aging Offset Value characteristic...");
     bleService->addCharacteristic(&_mctao_char);
     _mctao_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mctao_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mctao_char.toString().c_str());
 
-    Serial.print(F("Add MatrixClock Firmware Version char... "));
+    ESP_LOGI(TAG, "Add MatrixClock Firmware Version characteristic...");
     bleService->addCharacteristic(&_mcfv_char);
     _mcfv_char.addDescriptor(new BLE2902());
-    Serial.print(F("OK: "));
-    Serial.println(_mcfv_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mcfv_char.toString().c_str());
 
-    Serial.print(F("Add MatrixClock OTA Control char... "));
+    ESP_LOGI(TAG, "Add MatrixClock OTA Control characteristic...");
     bleService->addCharacteristic(&_mcotac_char);
     _mcotac_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mcotac_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mcotac_char.toString().c_str());
 
-    Serial.print(F("Add MatrixClock OTA Data char... "));
+    ESP_LOGI(TAG, "Add MatrixClock OTA Data characteristic...");
     bleService->addCharacteristic(&_mcotad_char);
     uint8_t init_buffer[BLE_OTA_DATA_BUFFER] = {0};
     _mcotad_char.setValue(init_buffer, sizeof(init_buffer));
     _mcotad_char.setCallbacks(&_myCharacteristicCallbacks);
-    Serial.print(F("OK: "));
-    Serial.println(_mcotad_char.toString().c_str());
+    ESP_LOGI(TAG, "OK: %s", _mcotad_char.toString().c_str());
 
     // Start the service
-    Serial.print(F("bleService->start()... "));
+    ESP_LOGI(TAG, "bleService->start()...");
     bleService->start();
-    Serial.println(F("OK"));
+    ESP_LOGI(TAG, "OK (bleService successfully started)");
 
     // Start advertising
     start_advertising(pServer);
@@ -514,9 +555,9 @@ void ble_update_matrix_show(const bool show)
 
 void start_advertising(BLEServer* pServer)
 {
-    Serial.print(F("Start advertising... "));
+    ESP_LOGI(TAG, "Start advertising...");
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(MC_SERVICE_UUID);
     pServer->getAdvertising()->start();
-    Serial.println(F("OK"));
+    ESP_LOGI(TAG, "OK (advertising started)");
 }

@@ -15,7 +15,8 @@ bool times_are_different(const struct tm* dt1, const struct tm* dt2);
 /**
  * @brief Prints the formatted time string to console with some prefix.
  * 
+ * @param tag ESP32 logging tag
  * @param prefix to write before the formatted time string
  * @param dt time structure
  */
-void println_tm(const char *prefix, const struct tm *dt);
+void log_tm(const char* tag, const char *prefix, const struct tm *dt);

@@ -65,7 +65,7 @@ class RealTimeClock
          */
         bool init(int sdaPin, int sclPin, uint32_t frequency);
 
-        /**
+         /**
          * @brief Get crystal aging offset value.
          * 
          * It provides an 8-bit code to add to the codes in the capacitance array 
