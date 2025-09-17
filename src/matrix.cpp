@@ -74,7 +74,7 @@ void matrix_init(struct tm *init_dt)
 
     // Setup timer for driving display
     timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &display_updater, true);
+    timerAttachInterrupt(timer, &display_updater, false);
     timerAlarmWrite(timer, 2000, true);
     timerAlarmEnable(timer);
     yield();
@@ -89,7 +89,7 @@ void matrix_init(struct tm *init_dt)
     // Start the Animation Timer
     tetris.setText(F("GOLYAKOFF"));
     animationTimer = timerBegin(1, 80, true);
-    timerAttachInterrupt(animationTimer, &animation_handler, true);
+    timerAttachInterrupt(animationTimer, &animation_handler, false);
     timerAlarmWrite(animationTimer, 100000, true);
     timerAlarmEnable(animationTimer);
 

@@ -363,7 +363,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         if(pCharacteristic->getUUID().equals(_mctt_char.getUUID()))
         {
             int8_t temperature = _get_rtc_temperature_ble_read();
-            uint8_t data_val[1] = { temperature };
+            uint8_t data_val[1] = { static_cast<uint8_t>(temperature) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
             return;
         }
@@ -371,7 +371,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         if(pCharacteristic->getUUID().equals(_mctao_char.getUUID()))
         {
             int8_t aging_offset = _get_rtc_aging_offset_ble_read();
-            uint8_t data_val[1] = { aging_offset };
+            uint8_t data_val[1] = { static_cast<uint8_t>(aging_offset) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
             return;
         }
