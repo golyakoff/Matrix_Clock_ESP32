@@ -12,6 +12,8 @@
 #define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
 #define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
 
+#define MC_HOURLY_BRIGHTNESS_LEN       (24U)
+
 static const char* TAG = "BLE";
 
 // BLE Transmission Type: LSO: Least Significant Octet First
@@ -27,6 +29,7 @@ static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteri
 
 static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mchbt_char(MC_HOURLY_BRIGHTNESS_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
@@ -56,6 +59,9 @@ static ble_set_auto_bright_en_on_ble_write_t _set_auto_bright_en_on_ble_write = 
 
 static ble_get_manual_bright_val_on_ble_read_t _get_manual_bright_val_on_ble_read = nullptr;
 static ble_set_manual_bright_val_on_ble_write_t _set_manual_bright_val_on_ble_write = nullptr;
+
+static ble_get_hourly_brightness_on_ble_read_t _get_hourly_brightness_on_ble_read = nullptr;
+static ble_set_hourly_brightness_on_ble_write_t _set_hourly_brightness_on_ble_write = nullptr;
 
 static ble_set_alarm_on_ble_write_t _set_alarm_on_ble_write = nullptr;
 static ble_get_alarm_on_ble_read_t _get_alarm_on_ble_read = nullptr;
@@ -206,7 +212,28 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if ((pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) || 
+        if(pCharacteristic->getUUID().equals(_mchbt_char.getUUID()) && param->write.len == MC_HOURLY_BRIGHTNESS_LEN)
+        {
+            if (_set_hourly_brightness_on_ble_write == nullptr)
+            {
+                ESP_LOGE(TAG, "Error: callback _set_hourly_brightness_on_ble_write is nullptr.");
+                return;
+            }
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_hourly_brightness_on_ble_write(...)...");
+            #endif
+
+            _set_hourly_brightness_on_ble_write(param->write.value, param->write.len);
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
+            return;
+        }
+
+        if ((pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) ||
              pCharacteristic->getUUID().equals(_mctona_char.getUUID())) &&
             param->write.len == 2)
         {
@@ -343,6 +370,14 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
+        if(pCharacteristic->getUUID().equals(_mchbt_char.getUUID()))
+        {
+            uint8_t table[MC_HOURLY_BRIGHTNESS_LEN];
+            _get_hourly_brightness_on_ble_read(table);
+            pCharacteristic->setValue(table, sizeof(table));
+            return;
+        }
+
         if(pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) ||
            pCharacteristic->getUUID().equals(_mctona_char.getUUID()))
         {
@@ -387,6 +422,8 @@ void ble_init(
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
+    ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
     ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb,
     ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,
@@ -407,6 +444,9 @@ void ble_init(
 
     _set_manual_bright_val_on_ble_write = ble_set_manual_bright_val_on_ble_write_cb;
     _get_manual_bright_val_on_ble_read = ble_get_manual_bright_val_on_ble_read_cb;
+
+    _set_hourly_brightness_on_ble_write = ble_set_hourly_brightness_on_ble_write_cb;
+    _get_hourly_brightness_on_ble_read = ble_get_hourly_brightness_on_ble_read_cb;
 
     _set_alarm_on_ble_write = ble_set_alarm_on_ble_write_cb;
     _get_alarm_on_ble_read = ble_get_alarm_on_ble_read_cb;
@@ -478,6 +518,11 @@ void ble_init(
     bleService->addCharacteristic(&_mcmbv_char);
     _mcmbv_char.setCallbacks(&_myCharacteristicCallbacks);
     ESP_LOGI(TAG, "OK: %s", _mcmbv_char.toString().c_str());
+
+    ESP_LOGI(TAG, "Add MatrixClock Hourly Brightness Schedule characteristic...");
+    bleService->addCharacteristic(&_mchbt_char);
+    _mchbt_char.setCallbacks(&_myCharacteristicCallbacks);
+    ESP_LOGI(TAG, "OK: %s", _mchbt_char.toString().c_str());
 
     ESP_LOGI(TAG, "Add MatrixClock RTC Temperature Value characteristic...");
     bleService->addCharacteristic(&_mctt_char);

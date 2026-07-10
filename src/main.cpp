@@ -15,6 +15,7 @@
 // Project includes
 #include "time_helper.h"
 #include "rtc.h"
+#include "brightness_schedule.h"
 #include "matrix.h"
 #include "ble.h"
 #include "alarm.h"
@@ -53,6 +54,7 @@ static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUC
 
 void main_rtc_init();
 void main_ble_init();
+void main_brightness_schedule_init();
 void main_matrix_init();
 
 void ota_progress_callback(size_t received, size_t total);
@@ -69,6 +71,7 @@ void main_clock_init() {
     main_rtc_init();
     main_ble_init();
     delay(500);
+    main_brightness_schedule_init();
     main_matrix_init();
 }
 
@@ -175,6 +178,19 @@ void main_rtc_init()
     matrix_set_manual_brightness(manual_brightness_value);
 }
 
+// Hourly brightness schedule init with debug messages
+void main_brightness_schedule_init()
+{
+    if (!brightness_schedule_init())
+    {
+        for(;;) {
+            ESP_LOGE(TAG, "Error: brightness_schedule_init(). Hourly brightness schedule was not initialized!");
+            delay(5000);
+        }
+    }
+    ESP_LOGI(TAG, "brightness_schedule_init(): OK");
+}
+
 // Matrix init with debug message
 void main_matrix_init()
 {
@@ -259,6 +275,31 @@ uint8_t get_matrix_manual_brightness_on_ble_read()
     #endif
 
     return matrix_get_manual_brightness();
+}
+
+void set_matrix_hourly_brightness_on_ble_write(const uint8_t* data, size_t length)
+{
+    if (length != BRIGHTNESS_SCHEDULE_HOURS)
+    {
+        ESP_LOGE(TAG, "Error: hourly brightness table must be %d bytes, got %d", BRIGHTNESS_SCHEDULE_HOURS, length);
+        return;
+    }
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Calling callback set_matrix_hourly_brightness_on_ble_write(...)");
+    #endif
+
+    if (!brightness_schedule_save(data))
+        ESP_LOGE(TAG, "Error: set_matrix_hourly_brightness_on_ble_write(...) > brightness_schedule_save(...)");
+}
+
+void get_matrix_hourly_brightness_on_ble_read(uint8_t* table_out)
+{
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_matrix_hourly_brightness_on_ble_read()");
+    #endif
+
+    brightness_schedule_load(table_out);
 }
 
 void set_matrix_alarm_on_ble_write(ble_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active)
@@ -449,6 +490,8 @@ void main_ble_init()
         &get_matrix_auto_brightness_on_ble_read,
         &set_matrix_manual_brightness_on_ble_write,
         &get_matrix_manual_brightness_on_ble_read,
+        &set_matrix_hourly_brightness_on_ble_write,
+        &get_matrix_hourly_brightness_on_ble_read,
         &set_matrix_alarm_on_ble_write,
         &get_matrix_alarm_on_ble_read,
         &get_rtc_temperature_ble_read,

@@ -32,11 +32,17 @@
 // This manual operation has the lower priority than the alarm.
 #define MC_TURN_ON_CONTROL_CHAR_UUID        "2E126C52-37B8-4A7D-9688-28E33104C0E1" // M Read, Write, Notify
 
-// Control point to switch between auto and manual brightness adjustment value
+// Control point to switch between auto and manual brightness adjustment value.
+// When auto is enabled, brightness is currently driven by the hourly schedule below
+// (see MC_HOURLY_BRIGHTNESS_CHAR_UUID) rather than a light sensor.
 #define MC_AUTO_BRIGHT_ENABLE_CHAR_UUID     "9B078810-99AB-4423-B3A8-6F2E86A09582" // M Read, Write
 
 // Control point to setup manual brightness adjustment value
 #define MC_MANUAL_BRIGHT_VAL_CHAR_UUID      "117ED80D-AF6E-4E4D-B900-48F68725A7D3" // M Read, Write
+
+// Hourly brightness schedule: 24 brightness nibbles (0..15), one per hour of day (index 0 = 00h..00:59, ... index 23 = 23h..23:59).
+// Used as the brightness source when auto brightness is enabled (MC_AUTO_BRIGHT_ENABLE_CHAR_UUID).
+#define MC_HOURLY_BRIGHTNESS_CHAR_UUID      "C2C5D9AA-4C0B-4A69-9E9B-9E1D8B7A2F31" // M Read, Write
 
 // RTC chip temperature formatted string "-XX.YY C" with the 0.25 degree precision
 #define MC_TEMPERATURE_CHAR_UUID            "13BE1932-508D-4BEB-AFBC-2C21D1397920" // M Read
@@ -83,6 +89,21 @@ typedef void (*ble_set_manual_bright_val_on_ble_write_t)(const uint8_t manual_br
  * @brief Type of a function for getting "manual brightness" value from the device when it requested by BLE.
  */
 typedef uint8_t (*ble_get_manual_bright_val_on_ble_read_t)();
+
+/**
+ * @brief Type of a function for setting the hourly brightness schedule to the device when it came from BLE.
+ *
+ * @param table pointer to the raw bytes written by the BLE client (expected to be 24 brightness nibbles, one per hour).
+ * @param length number of bytes written by the BLE client.
+ */
+typedef void (*ble_set_hourly_brightness_on_ble_write_t)(const uint8_t* table, size_t length);
+
+/**
+ * @brief Type of a function for getting the hourly brightness schedule from the device when it requested by BLE.
+ *
+ * @param table_out pointer to the memory (24 bytes) for storing the hourly brightness schedule.
+ */
+typedef void (*ble_get_hourly_brightness_on_ble_read_t)(uint8_t* table_out);
 
 /**
  * @brief Alarm index used to choose the alarm we work with in the methods below: On/Off.
@@ -150,6 +171,8 @@ typedef void (*ble_set_ota_data_ble_write_t)(const uint8_t* data, size_t length)
  * @param ble_get_auto_bright_en_on_ble_read_cb Callback function for getting "auto brightness" state from the device when it requested by BLE.
  * @param ble_set_manual_bright_val_on_ble_write_cb Callback function for setting "manual brightness" value to the device when it came from BLE.
  * @param ble_get_manual_bright_val_on_ble_read_cb Callback function for getting "manual brightness" value from the device when it requested by BLE.
+ * @param ble_set_hourly_brightness_on_ble_write_cb Callback function for setting the hourly brightness schedule to the device when it came from BLE.
+ * @param ble_get_hourly_brightness_on_ble_read_cb Callback function for getting the hourly brightness schedule from the device when it requested by BLE.
  * @param ble_set_alarm_on_ble_write_cb Callback function for setting 1 of 2 alarms' settings to the device when it came from BLE.
  * @param ble_get_alarm_on_ble_read_cb Callback function for getting 1 of 2 alarms' settings from the device when it requested by BLE.
  * @param ble_get_rtc_temperature_ble_read_cb Callback function for getting RTC temperature from the device when it requested by BLE.
@@ -167,6 +190,8 @@ void ble_init(
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
+    ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
     ble_get_alarm_on_ble_read_t ble_get_alarm_on_ble_read_cb,
     ble_get_rtc_temperature_ble_read_t ble_get_rtc_temperature_ble_read_cb,

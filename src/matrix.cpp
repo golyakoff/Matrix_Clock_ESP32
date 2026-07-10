@@ -4,6 +4,7 @@
 #include <esp_log.h>
 
 #include "time_helper.h"
+#include "brightness_schedule.h"
 #include "matrix.h"
 
 static const char* TAG = "MATRIX";
@@ -292,16 +293,14 @@ void check_brightness_tick()
         if (_use_auto_brightness)
         {
             uint16_t adc_var_val = analogRead(LDR_PIN);
-            
+
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "ADC value from LDR is %d", adc_var_val);
             #endif
 
-            // TODO: Realize auto-adjust brightness
-            // _brightness = map(
-            //     adc_var_val,
-            //     0, ADC_SCALE,
-            //     PWM_MIN_VALUE, PWM_MAX_VALUE);
+            // LDR-based auto-adjustment is not wired up yet, so brightness is
+            // driven by the user-configurable hourly schedule instead (see brightness_schedule.h).
+            _brightness = brightness_nibble_to_byte(brightness_schedule_get_for_hour(_dt.tm_hour));
         }
         else
         {
