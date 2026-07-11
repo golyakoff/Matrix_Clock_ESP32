@@ -24,10 +24,44 @@ bool brightness_schedule_init();
 /**
  * @brief Saves the new hourly brightness table into NVS.
  *
+ *        WARNING: writing NVS disables the flash cache for the duration of the erase/write.
+ *        Any interrupt that runs code located in flash (e.g. the PxMatrix display timer ISR)
+ *        will panic with "Cache disabled but cached memory region accessed" if it fires in that
+ *        window. Only call this while such interrupts are stopped, or use
+ *        brightness_schedule_set() + brightness_schedule_flush() instead.
+ *
  * @param table_24 array of BRIGHTNESS_SCHEDULE_HOURS brightness nibbles (0..15), index = hour of day (0..23).
  * @return true if saving successfully done, otherwise false.
  */
 bool brightness_schedule_save(const uint8_t table_24[BRIGHTNESS_SCHEDULE_HOURS]);
+
+/**
+ * @brief Updates the in-memory hourly brightness table and marks it as pending for an NVS write.
+ *        Touches RAM only, so it is safe to call from a BLE callback: the new values take effect
+ *        on the matrix immediately, while the flash write is deferred to brightness_schedule_flush().
+ *
+ * @param table_24 array of BRIGHTNESS_SCHEDULE_HOURS brightness nibbles (0..15), index = hour of day (0..23).
+ */
+void brightness_schedule_set(const uint8_t table_24[BRIGHTNESS_SCHEDULE_HOURS]);
+
+/**
+ * @brief Gets the value indicating whether the in-memory table differs from the one stored in NVS,
+ *        i.e. whether brightness_schedule_flush() has to be called.
+ *
+ * @return true if there is a pending table waiting to be written into NVS, otherwise false.
+ */
+bool brightness_schedule_is_dirty();
+
+/**
+ * @brief Writes the pending table (see brightness_schedule_set()) into NVS. Does nothing if there
+ *        is nothing pending.
+ *
+ *        WARNING: see the flash cache note on brightness_schedule_save(). Call this from the main
+ *        loop only, with the display timers stopped (matrix_pause_timers()).
+ *
+ * @return true if there was nothing to write or the write succeeded, otherwise false.
+ */
+bool brightness_schedule_flush();
 
 /**
  * @brief Loads the current hourly brightness table from the in-memory cache.

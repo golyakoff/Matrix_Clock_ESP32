@@ -56,6 +56,7 @@ void main_rtc_init();
 void main_ble_init();
 void main_brightness_schedule_init();
 void main_matrix_init();
+void main_brightness_schedule_flush();
 
 void ota_progress_callback(size_t received, size_t total);
 void ota_status_callback(const char* status, bool is_error);
@@ -99,7 +100,29 @@ void loop()
             alarmOn.tick(&_matrix_dt);
             alarmOff.tick(&_matrix_dt);
         }
+
+        main_brightness_schedule_flush();
     }
+}
+
+// Writes the hourly brightness table received over BLE into NVS, if there is one pending.
+// The display timers are stopped for the duration of the write: their ISRs execute code from flash,
+// and the flash cache is disabled while NVS erases/writes its sector.
+void main_brightness_schedule_flush()
+{
+    if (!brightness_schedule_is_dirty())
+        return;
+
+    ESP_LOGI(TAG, "Writing the pending hourly brightness table into NVS...");
+
+    matrix_pause_timers();
+    bool saved = brightness_schedule_flush();
+    matrix_resume_timers();
+
+    if (!saved)
+        ESP_LOGE(TAG, "Error: main_brightness_schedule_flush() > brightness_schedule_flush()");
+    else
+        ESP_LOGI(TAG, "brightness_schedule_flush(): OK");
 }
 
 // RTC init with debug messages
@@ -289,8 +312,8 @@ void set_matrix_hourly_brightness_on_ble_write(const uint8_t* data, size_t lengt
     ESP_LOGD(TAG, "Calling callback set_matrix_hourly_brightness_on_ble_write(...)");
     #endif
 
-    if (!brightness_schedule_save(data))
-        ESP_LOGE(TAG, "Error: set_matrix_hourly_brightness_on_ble_write(...) > brightness_schedule_save(...)");
+    // RAM only: the NVS write needs the display timers stopped, so it is done in loop().
+    brightness_schedule_set(data);
 }
 
 void get_matrix_hourly_brightness_on_ble_read(uint8_t* table_out)

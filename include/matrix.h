@@ -60,6 +60,20 @@ void matrix_init(struct tm *init_dt);
 void matrix_unload();
 
 /**
+ * @brief Stops the display and animation timers, keeping the display instance intact.
+ *        Their ISRs run code from flash, so they have to be stopped around any flash write
+ *        (NVS, OTA), otherwise the ISR fires while the flash cache is disabled and the CPU panics
+ *        with "Cache disabled but cached memory region accessed".
+ *        The matrix stays dark until matrix_resume_timers() is called.
+ */
+void matrix_pause_timers();
+
+/**
+ * @brief Restarts the display and animation timers stopped by matrix_pause_timers().
+ */
+void matrix_resume_timers();
+
+/**
  * @brief This methods should be called from ISR from RTC every second.
  *        It increments the internal time of the matrix by 1 second
  *        and inverts the "show colon" variable.

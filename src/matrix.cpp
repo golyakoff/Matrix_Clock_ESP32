@@ -133,6 +133,26 @@ void matrix_unload() {
     ESP_LOGI(TAG, "OK: Unloaded");
 }
 
+void matrix_pause_timers()
+{
+    // Both handlers execute code living in flash (PxMatrix and TetrisMatrixDraw), so they must not
+    // fire while the flash cache is disabled, i.e. during an NVS write.
+    if (timer)
+        timerAlarmDisable(timer);
+
+    if (animationTimer)
+        timerAlarmDisable(animationTimer);
+}
+
+void matrix_resume_timers()
+{
+    if (animationTimer)
+        timerAlarmEnable(animationTimer);
+
+    if (timer)
+        timerAlarmEnable(timer);
+}
+
 void IRAM_ATTR matrix_1hz_isr_loop()
 {
     portENTER_CRITICAL_ISR(&timerMux);
