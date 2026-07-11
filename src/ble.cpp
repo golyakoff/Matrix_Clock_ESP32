@@ -478,7 +478,11 @@ void ble_init(
     ESP_LOGI(TAG, "OK (BLE server created)");
 
     ESP_LOGI(TAG, "Create primary service...");
-    BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 30U, 0U);
+    // GATT handle budget: 1 for the service declaration + 2 per characteristic (declaration and value)
+    // + 1 per descriptor. With 13 characteristics and 4 BLE2902 descriptors that is 1 + 26 + 4 = 31.
+    // Keep spare handles here: once the budget is exhausted the stack silently stops handing out
+    // handles, and the characteristics/descriptors at the end of the table stop working.
+    BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 40U, 0U);
     ESP_LOGI(TAG, "OK (primary service '%s' created)", bleService->toString().c_str());
 
     ESP_LOGI(TAG, "Add MatrixClock Time characteristic...");
