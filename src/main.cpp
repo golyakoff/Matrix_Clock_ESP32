@@ -31,9 +31,13 @@
 #define TOUCH_PIN   (12U)
 #define TOUCH_THRESHOLD (40U)
 
+#define OTA_FAILED_REBOOT_DELAY_MS (10000UL)
+
 static const char* TAG = "MAIN";
 
 static unsigned long _10ms_loop_due = 0;
+static bool _ota_failed = false;
+static unsigned long _ota_failed_at = 0;
 
 static struct tm _rtc_dt;
 static struct tm _matrix_dt;
@@ -66,6 +70,10 @@ void main_ota_init() {
     detachInterrupt(RTC_SQW);
     matrix_enter_ota_mode();
     touchSensor.Unload();
+
+    // Clear any pending auto-reboot left over from an earlier failed attempt in this power cycle,
+    // so it can't fire in the middle of this new attempt.
+    _ota_failed = false;
 }
 
 void main_clock_init() {
@@ -86,6 +94,12 @@ void setup()
 void loop()
 {
     unsigned long now = millis();
+
+    if (_ota_failed && (now - _ota_failed_at >= OTA_FAILED_REBOOT_DELAY_MS)) {
+        ESP_LOGI(TAG, "Rebooting after failed OTA update...");
+        ESP.restart();
+    }
+
     if (now > _10ms_loop_due) {
         matrix_100hz_loop();
         //touch_100hz_loop_tick();
@@ -439,7 +453,9 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
                     firmware_size,
                     ota_progress_callback,
                     ota_status_callback,
-                    ota_completion_callback)
+                    ota_completion_callback,
+                    matrix_pause_timers,
+                    matrix_resume_timers)
                 ) {
                     ota_emit_status("OTA started successfully", false);
                 } else {
@@ -474,27 +490,26 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
 
 void set_ota_data_ble_write(const uint8_t* data, size_t length)
 {
-    // The display refresh timer's ISR runs code living in flash (PxMatrix), so it must not fire
-    // while Update.write() (inside ota_write()) has the flash cache disabled for the write.
-    matrix_pause_timers();
-    bool ok = ota_write((uint8_t*)data, length);
-    matrix_resume_timers();
-
-    if (!ok) {
+    if (!ota_write((uint8_t*)data, length)) {
         ota_emit_status("OTA data write failed", true);
     }
 }
 
 void ota_progress_callback(size_t received, size_t total) {
-    uint8_t percent = (total > 0) ? (uint8_t)((received * 100UL) / total) : 0;
-    matrix_set_ota_progress(percent);
+    // Match what the phone app shows: it downloads the .bin to the phone first, then sends it
+    // over BLE (this "install" phase, which is all the device sees) and finally reboots/verifies,
+    // and maps that onto one 0-100% bar as 2..5% (download) + 5..99% (install) + 99..100% (reboot).
+    // See performCompleteUpdate()/installFirmwareInternal() in the Android app's FirmwareRepository.kt.
+    float raw_percent = (total > 0) ? (received * 100.0f) / total : 0.0f;
+    float overall_percent = 5.0f + raw_percent * 0.94f;
+    matrix_set_ota_progress(overall_percent);
 
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
     ESP_LOGD(TAG,
-        "OTA Progress: %d/%d bytes (%d%%)",
+        "OTA Progress: %d/%d bytes (%.1f%%)",
         received,
         total,
-        percent);
+        overall_percent);
     #endif
 }
 
@@ -509,6 +524,12 @@ void ota_completion_callback(bool success, const char* message) {
     if (!success) {
         ESP_LOGE(TAG, "OTA FAILED: %s", message);
         matrix_show_ota_failed();
+
+        // Reboot on our own since the device has no power button: deferred to loop() (instead of
+        // a blocking delay() here) so the BLE stack's write response for the command that got us
+        // here isn't held up - this callback runs on the BLE stack's own task.
+        _ota_failed = true;
+        _ota_failed_at = millis();
     } else {
         ESP_LOGI(TAG, "OTA SUCCESS: %s", message);
     }

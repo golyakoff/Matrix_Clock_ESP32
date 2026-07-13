@@ -11,8 +11,21 @@ typedef void (*ota_status_cb_t)(const char* status, bool is_error);
 typedef void (*ota_complete_cb_t)(bool success, const char* message);
 
 /**
+ * @brief Type of a function called immediately before ota_write() writes a chunk to flash
+ *        (i.e. right before Update.write()), so the caller can pause anything whose ISR must
+ *        not fire while the flash cache is disabled for the write.
+ */
+typedef void (*ota_flash_write_begin_cb_t)();
+
+/**
+ * @brief Type of a function called immediately after the flash write started by
+ *        ota_flash_write_begin_cb_t completes.
+ */
+typedef void (*ota_flash_write_end_cb_t)();
+
+/**
  * @brief Begins the OTA update process and prepares for firmware data reception.
- * 
+ *
  * @return true if OTA process started successfully.
  * @return false if OTA process failed to start or another update is already in progress.
  */
@@ -20,7 +33,9 @@ bool ota_begin(
     size_t firmware_size,
     ota_progress_cb_t on_ota_progress_cb,
     ota_status_cb_t on_ota_status_cb,
-    ota_complete_cb_t on_ota_complete_cb
+    ota_complete_cb_t on_ota_complete_cb,
+    ota_flash_write_begin_cb_t on_flash_write_begin_cb,
+    ota_flash_write_end_cb_t on_flash_write_end_cb
 );
 
 /**

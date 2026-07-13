@@ -71,18 +71,19 @@ void matrix_resume_timers();
 /**
  * @brief Switches the matrix from the clock to a static "Loading firmware" OTA screen.
  *        Stops the falling-digit animation timer, but keeps the display refresh timer running
- *        so the panel stays lit for the whole (potentially long) firmware transfer instead of
- *        going dark, the way matrix_unload() used to leave it.
+ *        (temporarily speed up, see matrix.cpp) so the panel stays lit for the whole (potentially
+ *        long) firmware transfer instead of going dark, the way matrix_unload() used to leave it.
  */
 void matrix_enter_ota_mode();
 
 /**
- * @brief Updates the percentage shown on the OTA screen. Only redraws when the value actually
- *        changes, so this is safe to call on every received BLE chunk.
+ * @brief Updates the percentage shown on the OTA screen, with one decimal digit (e.g. "37.5%").
+ *        Only redraws when the displayed value actually changes, so this is safe to call on
+ *        every received BLE chunk.
  *
  * @param percent OTA transfer progress, 0..100. Ignored if matrix_enter_ota_mode() wasn't called.
  */
-void matrix_set_ota_progress(uint8_t percent);
+void matrix_set_ota_progress(float percent);
 
 /**
  * @brief Replaces the OTA progress screen with a static "Update failed" message, for when the
