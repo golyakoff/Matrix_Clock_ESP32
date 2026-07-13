@@ -168,13 +168,6 @@ class RealTimeClock
          */
         ErriezDS3231 _rtc;
 
-        /**
-         * @brief Get the Build Time structure (from the building PC)
-         * 
-         * @return struct tm that may be used for initial time set.
-         */
-        struct tm getBuildTime();
-        
         #ifdef DEBUG_RTC_MEMORY
         void testAlarmSaveLoad(rtc_alarm_index_t index, uint8_t hours, uint8_t minutes, bool active);
         void testBrightnessSaveLoad(bool use_auto_brightness, uint8_t manual_brightness_value);

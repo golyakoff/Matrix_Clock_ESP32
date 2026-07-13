@@ -1,3 +1,9 @@
+Release 1.2.1
+
+- [x] Removed dead code and stale commented-out snippets (no behavior change): an orphaned `RealTimeClock::getBuildTime()` (only caller was commented out) and a stray unused `disableInterrupts()` forward declaration in `rtc.cpp`, a bogus `touch_100hz_loop_tick()` call in `main.cpp`'s `loop()` (no such function exists), and disabled critical-section/ADC-read snippets in `matrix.cpp`
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.2.0...v1.2.1
+
 Release 1.2.0
 
 - [x] Added an "Updating firmware NN.N%" screen shown on the matrix during OTA updates, instead of a black screen: the matrix no longer fully unloads for the update, it stays powered and its display refresh timer keeps running (only the falling-digit animation is stopped), with the actual flash write briefly pausing that timer per chunk the same way the hourly brightness schedule already does. The shown percentage is scaled to match what the phone app displays (it also accounts for the download-to-phone and reboot/verify phases, not just the BLE transfer)

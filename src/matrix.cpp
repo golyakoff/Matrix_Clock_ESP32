@@ -69,7 +69,6 @@ void matrix_init(struct tm *init_dt)
 {
     matrix_set_time(init_dt, true);
 
-    //analogReadResolution(10);
     if (!adcAttachPin(LDR_PIN))
         ESP_LOGE(TAG, "Error: adcAttachPin(LDR_PIN) returned FALSE.");   
 
@@ -290,18 +289,12 @@ uint8_t matrix_get_manual_brightness()
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
 {
-    /// TODO: Pay attention
-    // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
     display.display(10);
-    // AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 // This method is for controlling the tetris library draw calls
 void animation_handler()
 {
-    /// TODO: Pay attention
-    // AGOXXX portENTER_CRITICAL_ISR(&timerMux);
-    
     // Not clearing the display and redrawing it when you
     // dont need to improves how the refresh rate appears
     if (!_finished_animating)
@@ -316,8 +309,6 @@ void animation_handler()
             _finished_animating = tetris.drawNumbers(2, 26, _show_colon);
         }
     }
-
-    // AGOXXX portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 void draw_intro(int x = 0, int y = 0)
@@ -365,12 +356,6 @@ void check_brightness_tick()
     {
         if (_use_auto_brightness)
         {
-            //uint16_t adc_var_val = analogRead(LDR_PIN);
-
-            // #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-            // ESP_LOGD(TAG, "ADC value from LDR is %d", adc_var_val);
-            // #endif
-
             // LDR-based auto-adjustment is not wired up yet, so brightness is
             // driven by the user-configurable hourly schedule instead (see brightness_schedule.h).
             _brightness = brightness_nibble_to_byte(brightness_schedule_get_for_hour(_dt.tm_hour));

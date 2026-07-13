@@ -102,8 +102,7 @@ void loop()
 
     if (now > _10ms_loop_due) {
         matrix_100hz_loop();
-        //touch_100hz_loop_tick();
-        
+
         _10ms_loop_due = now + 10;
 
         matrix_get_time(&_matrix_dt);
@@ -150,17 +149,6 @@ void main_rtc_init()
         }
     }    
     ESP_LOGI(TAG, "rtc.init(): OK");
-    
-    // Write aging offset into RTC chip
-    // const int8_t rtc_cor_ao = -2;
-    // if (!rtc.setAgingOffset(rtc_cor_ao))
-    // {
-    //     for(;;) {
-    //         ESP_LOGE(TAG, "Error: rtc.setAgingOffset(). Cannot write aging offset into RTC!");
-    //         delay(5000);
-    //     }
-    // }
-    // ESP_LOGI(TAG, "rtc.setAgingOffset(%d): OK", rtc_cor_ao);
 
     // Write out RTC chip aging offset
     int8_t rtc_ao = rtc.getAgingOffset();

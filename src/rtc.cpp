@@ -29,11 +29,6 @@ bool RealTimeClock::init(int sdaPin, int sclPin, uint32_t frequency)
     // Initialize RTC
     ok &= _rtc.begin();
 
-    // For DEBUG purposes only!
-    // Uncomment if you wish to initialize RTC from build date and time.
-    //const struct tm build_tm = getBuildTime();
-    //ok &= _rtc.write(&build_tm);
-
     // Enable 1Hz SQW
     ok &= _rtc.setSquareWave(SquareWave1Hz);
 
@@ -51,8 +46,6 @@ bool RealTimeClock::init(int sdaPin, int sclPin, uint32_t frequency)
 
     return ok;
 }
-
-void disableInterrupts();
 
 bool RealTimeClock::getTime(struct tm *dt_out)
 {
@@ -145,26 +138,6 @@ bool RealTimeClock::loadBrightness(bool *use_auto_brightness, uint8_t *manual_br
     *manual_brightness_value = (buffer & RTC_MEMORY_MANUAL_BRIGHT_MASK);
 
     return true;
-}
-
-struct tm RealTimeClock::getBuildTime()
-{
-    char s_month[5];
-    int year;
-    struct tm t;
-    static const char month_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    sscanf(__DATE__, "%s %d %d", s_month, &t.tm_mday, &year);
-    sscanf(__TIME__, "%2d %*c %2d %*c %2d", &t.tm_hour, &t.tm_min, &t.tm_sec);
-    // Find where is s_month in month_names. Deduce month value.
-    t.tm_mon = (strstr(month_names, s_month) - month_names) / 3 + 1;
-    t.tm_year = year - 1900;
-
-    // Add period before build started and flashing is done
-    t.tm_sec += 28;
-
-    // Normalize time
-    mktime(&t);
-    return t;
 }
 
 #ifdef DEBUG_RTC_MEMORY
