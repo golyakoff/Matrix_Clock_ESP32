@@ -64,7 +64,7 @@ void ota_completion_callback(bool success, const char* message);
 
 void main_ota_init() {
     detachInterrupt(RTC_SQW);
-    matrix_unload();
+    matrix_enter_ota_mode();
     touchSensor.Unload();
 }
 
@@ -474,18 +474,27 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
 
 void set_ota_data_ble_write(const uint8_t* data, size_t length)
 {
-    if (!ota_write((uint8_t*)data, length)) {
+    // The display refresh timer's ISR runs code living in flash (PxMatrix), so it must not fire
+    // while Update.write() (inside ota_write()) has the flash cache disabled for the write.
+    matrix_pause_timers();
+    bool ok = ota_write((uint8_t*)data, length);
+    matrix_resume_timers();
+
+    if (!ok) {
         ota_emit_status("OTA data write failed", true);
     }
 }
 
 void ota_progress_callback(size_t received, size_t total) {
+    uint8_t percent = (total > 0) ? (uint8_t)((received * 100UL) / total) : 0;
+    matrix_set_ota_progress(percent);
+
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
     ESP_LOGD(TAG,
-        "OTA Progress: %d/%d bytes (%.1f%%)", 
+        "OTA Progress: %d/%d bytes (%d%%)",
         received,
         total,
-        (received * 100.0) / total);
+        percent);
     #endif
 }
 
@@ -497,10 +506,12 @@ void ota_status_callback(const char* status, bool is_error) {
 }
 
 void ota_completion_callback(bool success, const char* message) {
-    if (!success)
+    if (!success) {
         ESP_LOGE(TAG, "OTA FAILED: %s", message);
-    else
+        matrix_show_ota_failed();
+    } else {
         ESP_LOGI(TAG, "OTA SUCCESS: %s", message);
+    }
 }
 
 void main_ble_init()

@@ -33,6 +33,9 @@ static char _matrix_time_buffer[6]; // the buffer of the string containing time,
 static struct tm _dt;               // time to display on the matrix
 static bool _force_update;          // if "true", there will be performed forced update of the time
 
+static bool _ota_mode = false;      // true while showing the OTA progress screen instead of the clock
+static int16_t _ota_percent_last = -1; // last percentage drawn, -1 = not drawn yet
+
 /**
  * @brief Used to convert nibble (4-bits unsigned integer) value of brightness
  * (from RTC and BLE, for example) to the byte (8-bits unsigned integer) value
@@ -106,37 +109,10 @@ void matrix_init(struct tm *init_dt)
     tetris.scale = 2;
 }
 
-void matrix_unload() {
-    ESP_LOGI(TAG, "Unloading matrix display for OTA... ");
-
-    display.clearDisplay();
-    display.flushDisplay();
-    display.setBrightness(0);
-
-    if (animationTimer) {
-        timerAlarmDisable(animationTimer);
-        timerDetachInterrupt(animationTimer);
-        timerEnd(animationTimer);
-        animationTimer = NULL;
-    }
-
-    if (timer) {
-        timerAlarmDisable(timer);
-        timerDetachInterrupt(timer);
-        timerEnd(timer);
-        timer = NULL;
-    }
-
-    _finished_animating = true;
-    _display_intro = false;
-
-    ESP_LOGI(TAG, "OK: Unloaded");
-}
-
 void matrix_pause_timers()
 {
     // Both handlers execute code living in flash (PxMatrix and TetrisMatrixDraw), so they must not
-    // fire while the flash cache is disabled, i.e. during an NVS write.
+    // fire while the flash cache is disabled, i.e. during an NVS write or an OTA flash write.
     if (timer)
         timerAlarmDisable(timer);
 
@@ -153,6 +129,61 @@ void matrix_resume_timers()
         timerAlarmEnable(timer);
 }
 
+void matrix_enter_ota_mode()
+{
+    ESP_LOGI(TAG, "Switching matrix to the OTA progress screen");
+
+    // Stop stepping the Tetris animation, but leave the refresh timer running: it just
+    // re-scans the frame buffer already sitting in the panel's memory, so the screen stays lit
+    // for the whole (potentially long) transfer instead of going dark.
+    if (animationTimer)
+        timerAlarmDisable(animationTimer);
+
+    _ota_mode = true;
+    _ota_percent_last = -1;
+
+    display.clearDisplay();
+    display.setTextWrap(false);
+    display.setTextSize(1);
+    display.setTextColor(display.color565(255, 255, 255));
+    display.setCursor(2, 2);
+    display.print("Loading");
+    display.setCursor(2, 11);
+    display.print("firmware");
+
+    matrix_set_ota_progress(0);
+}
+
+void matrix_set_ota_progress(uint8_t percent)
+{
+    if (!_ota_mode || percent == _ota_percent_last)
+        return;
+
+    _ota_percent_last = percent;
+
+    char buf[5];
+    snprintf(buf, sizeof(buf), "%u%%", percent);
+
+    // Only clear/redraw the percentage row; "Loading"/"firmware" above never change.
+    display.fillRect(0, 20, 64, 10, display.color565(0, 0, 0));
+    display.setCursor(2, 20);
+    display.print(buf);
+}
+
+void matrix_show_ota_failed()
+{
+    if (!_ota_mode)
+        return;
+
+    display.clearDisplay();
+    display.setCursor(2, 2);
+    display.print("Update");
+    display.setCursor(2, 11);
+    display.print("failed");
+    display.setCursor(2, 20);
+    display.print("Reboot");
+}
+
 void IRAM_ATTR matrix_1hz_isr_loop()
 {
     portENTER_CRITICAL_ISR(&timerMux);
@@ -164,7 +195,7 @@ void IRAM_ATTR matrix_1hz_isr_loop()
 void matrix_100hz_loop()
 {
     // Update if minutes are different only or if update was forced after the time correction
-    if (_dt.tm_sec >= 60 || _force_update)
+    if (!_ota_mode && (_dt.tm_sec >= 60 || _force_update))
     {
         set_matrix_time();
 
@@ -181,7 +212,7 @@ void matrix_100hz_loop()
     // To reduce flicker on the screen we stop clearing the screen
     // when the animation is finished, but we still need the colon to
     // to blink
-    if (_finished_animating)
+    if (!_ota_mode && _finished_animating)
     {
         handle_colon_after_animation();
     }

@@ -1,3 +1,10 @@
+Release 1.1.3
+
+- [x] Added a "Loading firmware NN%" screen shown on the matrix during OTA updates, instead of a black screen: the matrix no longer fully unloads for the update, it stays powered and its display refresh timer keeps running (only the falling-digit animation is stopped), with the actual flash write briefly pausing that timer per BLE chunk the same way the hourly brightness schedule already does
+- [x] Note: if an OTA update is aborted or fails, the matrix still requires a manual reboot to return to the clock (pre-existing limitation, unchanged by this release)
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.1.2...v1.1.3
+
 Release 1.1.2
 
 - [x] Fixed the time characteristic no longer notifying every second: adding the hourly brightness schedule characteristic pushed the GATT table one handle over the budget passed to createService(), so the entries at the end of the table never got a handle
