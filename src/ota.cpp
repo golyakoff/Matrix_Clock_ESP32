@@ -15,6 +15,8 @@ static size_t _firmware_total_size     = 0;
 static ota_progress_cb_t _on_ota_progress_cb  = nullptr;
 static ota_status_cb_t _on_ota_status_cb = nullptr;
 static ota_complete_cb_t _on_ota_complete_cb = nullptr;
+static ota_flash_write_begin_cb_t _on_flash_write_begin_cb = nullptr;
+static ota_flash_write_end_cb_t _on_flash_write_end_cb = nullptr;
 
 /**
  * @brief Begins the OTA update process and prepares for firmware data reception.
@@ -26,7 +28,9 @@ bool ota_begin(
     size_t firmware_size,
     ota_progress_cb_t on_ota_progress_cb,
     ota_status_cb_t on_ota_status_cb,
-    ota_complete_cb_t on_ota_complete_cb
+    ota_complete_cb_t on_ota_complete_cb,
+    ota_flash_write_begin_cb_t on_flash_write_begin_cb,
+    ota_flash_write_end_cb_t on_flash_write_end_cb
 ) {
     if (_ota_in_progress) {
         ota_emit_status("OTA already in progress", true);
@@ -41,7 +45,9 @@ bool ota_begin(
     // Initialize OTA callbacks
     _on_ota_progress_cb = on_ota_progress_cb;
     _on_ota_status_cb = on_ota_status_cb;
-    _on_ota_complete_cb = on_ota_complete_cb;    
+    _on_ota_complete_cb = on_ota_complete_cb;
+    _on_flash_write_begin_cb = on_flash_write_begin_cb;
+    _on_flash_write_end_cb = on_flash_write_end_cb;
 
     // Log partition information
     char status_msg[128];
@@ -82,10 +88,20 @@ bool ota_write(uint8_t* data, size_t length) {
         return false;
     }
 
+    // Write data to the update partition. Pausing must happen *before* the delay(1): disabling a
+    // timer alarm doesn't abort an already-in-flight interrupt, so the delay is what actually
+    // guarantees any display-refresh ISR invocation that was already running (or about to fire)
+    // has finished before the flash cache goes down for the write below.
+    if (_on_flash_write_begin_cb)
+        _on_flash_write_begin_cb();
+
     delay(1);
 
-    // Write data to the update partition
     size_t written = Update.write(data, length);
+
+    if (_on_flash_write_end_cb)
+        _on_flash_write_end_cb();
+
     if (written != length) {
         char error_msg[64];
         snprintf(error_msg, sizeof(error_msg), 
@@ -113,8 +129,17 @@ bool ota_end() {
         return false;
     }
 
-    // Finalize the update process
-    if (!Update.end()) {
+    // Finalize the update process. Like Update.write(), this writes to flash (flushing/finalizing
+    // the partition), so it needs the same ISR pause - unlike ota_write()'s chunks, this call was
+    // missing it, letting the still-running display refresh timer race the finalize write.
+    if (_on_flash_write_begin_cb)
+        _on_flash_write_begin_cb();
+    delay(1); // let any in-flight display-refresh ISR invocation finish, see ota_write()
+    bool update_ended = Update.end();
+    if (_on_flash_write_end_cb)
+        _on_flash_write_end_cb();
+
+    if (!update_ended) {
         ota_emit_status("Update.end() failed", true);
         ota_abort();
         return false;
@@ -148,8 +173,15 @@ bool ota_end() {
         return false;
     }
 
-    // Set the boot partition to the updated firmware
+    // Set the boot partition to the updated firmware - also a flash write (to the otadata
+    // partition), same reasoning as Update.end() above.
+    if (_on_flash_write_begin_cb)
+        _on_flash_write_begin_cb();
+    delay(1); // let any in-flight display-refresh ISR invocation finish, see ota_write()
     esp_err_t err = esp_ota_set_boot_partition(next_partition);
+    if (_on_flash_write_end_cb)
+        _on_flash_write_end_cb();
+
     if (err != ESP_OK) {
         char error_msg[64];
         snprintf(error_msg, sizeof(error_msg), 
@@ -172,8 +204,14 @@ bool ota_end() {
  */
 void ota_abort() {
     if (_ota_in_progress) {
-        // Abort the update and clean up resources
+        // Abort the update and clean up resources. Same flash-write hazard as in ota_end().
+        if (_on_flash_write_begin_cb)
+            _on_flash_write_begin_cb();
+        delay(1); // let any in-flight display-refresh ISR invocation finish, see ota_write()
         Update.end(false);
+        if (_on_flash_write_end_cb)
+            _on_flash_write_end_cb();
+
         ota_emit_status("OTA update aborted", true);
         ota_emit_complete(false, "Update aborted");
     }

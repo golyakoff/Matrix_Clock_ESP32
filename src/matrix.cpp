@@ -33,6 +33,11 @@ static char _matrix_time_buffer[6]; // the buffer of the string containing time,
 static struct tm _dt;               // time to display on the matrix
 static bool _force_update;          // if "true", there will be performed forced update of the time
 
+static bool _ota_mode = false;      // true while showing the OTA progress screen instead of the clock
+static int16_t _ota_percent_last = -1; // last percentage drawn, in tenths of a percent; -1 = not drawn yet
+
+#define DISPLAY_REFRESH_NORMAL_US (2000U) // matches the timerAlarmWrite() value matrix_init() sets up
+
 /**
  * @brief Used to convert nibble (4-bits unsigned integer) value of brightness
  * (from RTC and BLE, for example) to the byte (8-bits unsigned integer) value
@@ -76,7 +81,7 @@ void matrix_init(struct tm *init_dt)
     // Setup timer for driving display
     timer = timerBegin(0, 80, true);
     timerAttachInterrupt(timer, &display_updater, false);
-    timerAlarmWrite(timer, 2000, true);
+    timerAlarmWrite(timer, DISPLAY_REFRESH_NORMAL_US, true);
     timerAlarmEnable(timer);
     yield();
 
@@ -106,37 +111,10 @@ void matrix_init(struct tm *init_dt)
     tetris.scale = 2;
 }
 
-void matrix_unload() {
-    ESP_LOGI(TAG, "Unloading matrix display for OTA... ");
-
-    display.clearDisplay();
-    display.flushDisplay();
-    display.setBrightness(0);
-
-    if (animationTimer) {
-        timerAlarmDisable(animationTimer);
-        timerDetachInterrupt(animationTimer);
-        timerEnd(animationTimer);
-        animationTimer = NULL;
-    }
-
-    if (timer) {
-        timerAlarmDisable(timer);
-        timerDetachInterrupt(timer);
-        timerEnd(timer);
-        timer = NULL;
-    }
-
-    _finished_animating = true;
-    _display_intro = false;
-
-    ESP_LOGI(TAG, "OK: Unloaded");
-}
-
 void matrix_pause_timers()
 {
     // Both handlers execute code living in flash (PxMatrix and TetrisMatrixDraw), so they must not
-    // fire while the flash cache is disabled, i.e. during an NVS write.
+    // fire while the flash cache is disabled, i.e. during an NVS write or an OTA flash write.
     if (timer)
         timerAlarmDisable(timer);
 
@@ -146,11 +124,79 @@ void matrix_pause_timers()
 
 void matrix_resume_timers()
 {
-    if (animationTimer)
+    // Leave the animation timer off while the OTA screen is up: set_ota_data_ble_write() calls
+    // matrix_pause_timers()/matrix_resume_timers() around every single received chunk, and
+    // re-enabling it here would restart the Tetris clock animation on top of the OTA text after
+    // the very first chunk.
+    if (animationTimer && !_ota_mode)
         timerAlarmEnable(animationTimer);
 
     if (timer)
         timerAlarmEnable(timer);
+}
+
+void matrix_enter_ota_mode()
+{
+    ESP_LOGI(TAG, "Switching matrix to the OTA progress screen");
+
+    // Stop stepping the Tetris animation, but leave the refresh timer running at its normal rate:
+    // it just re-scans the frame buffer already sitting in the panel's memory, so the screen stays
+    // lit for the whole (potentially long) transfer instead of going dark. Deliberately NOT sped up
+    // here (a previous attempt at that caused OTA write instability - it raises how often the timer
+    // races the flash-write pause below, and adds ISR overhead competing with the BLE stack for CPU).
+    if (animationTimer)
+        timerAlarmDisable(animationTimer);
+
+    _ota_mode = true;
+    _ota_percent_last = -1;
+
+    display.clearDisplay();
+    display.setTextWrap(false);
+    display.setTextSize(1);
+    display.setTextColor(display.color565(255, 144, 0));
+    display.setCursor(9, 2);
+    display.print("Updating");
+    display.setCursor(9, 12);
+    display.print("firmware");
+
+    matrix_set_ota_progress(5.0f);
+}
+
+void matrix_set_ota_progress(float percent)
+{
+    if (!_ota_mode)
+        return;
+
+    int16_t tenths = (int16_t)(percent * 10.0f + 0.5f);
+    if (tenths == _ota_percent_last)
+        return;
+
+    _ota_percent_last = tenths;
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%.1f%%", tenths / 10.0f);
+
+    // Only clear/redraw the percentage row; "Loading"/"firmware" above never change.
+    display.fillRect(17, 22, 32, 10, display.color565(0, 0, 0));
+    display.setCursor(17, 22);
+    display.setTextColor(display.color565(220, 0, 15));
+    display.print(buf);
+}
+
+void matrix_show_ota_failed()
+{
+    if (!_ota_mode)
+        return;
+
+    display.clearDisplay();
+    display.setCursor(18, 2);
+    display.setTextColor(display.color565(220, 0, 15));
+    display.print("ERROR");
+    display.setCursor(6, 12);
+    display.setTextColor(display.color565(220, 120, 0));
+    display.print("Reboot in");
+    display.setCursor(15, 22);
+    display.print("10 sec");
 }
 
 void IRAM_ATTR matrix_1hz_isr_loop()
@@ -163,6 +209,13 @@ void IRAM_ATTR matrix_1hz_isr_loop()
 
 void matrix_100hz_loop()
 {
+    // The OTA screen is static and fully managed by matrix_enter_ota_mode()/matrix_set_ota_progress().
+    // Brightness re-checks are skipped too: check_brightness_tick()'s analogRead()/setBrightness()
+    // briefly interferes with the display refresh ISR, which was the once-a-second flicker seen
+    // during OTA (brightness itself just stays frozen at whatever it was when OTA started).
+    if (_ota_mode)
+        return;
+
     // Update if minutes are different only or if update was forced after the time correction
     if (_dt.tm_sec >= 60 || _force_update)
     {
@@ -172,7 +225,7 @@ void matrix_100hz_loop()
             _force_update = false;
     }
 
-    if (++tim_100hz > 20)
+    if (++tim_100hz > 100)
     {
         check_brightness_tick();
         tim_100hz = 0;
@@ -312,11 +365,11 @@ void check_brightness_tick()
     {
         if (_use_auto_brightness)
         {
-            uint16_t adc_var_val = analogRead(LDR_PIN);
+            //uint16_t adc_var_val = analogRead(LDR_PIN);
 
-            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-            ESP_LOGD(TAG, "ADC value from LDR is %d", adc_var_val);
-            #endif
+            // #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            // ESP_LOGD(TAG, "ADC value from LDR is %d", adc_var_val);
+            // #endif
 
             // LDR-based auto-adjustment is not wired up yet, so brightness is
             // driven by the user-configurable hourly schedule instead (see brightness_schedule.h).
