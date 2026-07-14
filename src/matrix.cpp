@@ -37,6 +37,9 @@ static bool _ota_mode = false;      // true while showing the OTA progress scree
 static int16_t _ota_percent_last = -1; // last percentage drawn, in tenths of a percent; -1 = not drawn yet
 
 #define DISPLAY_REFRESH_NORMAL_US (2000U) // matches the timerAlarmWrite() value matrix_init() sets up
+#define DISPLAY_REFRESH_OTA_US    (4000U) // half the normal refresh rate while OTA is running, to
+                                           // free up CPU time for the BLE stack - OTA data transfer
+                                           // was proving unreliable on some units at the normal rate
 
 /**
  * @brief Used to convert nibble (4-bits unsigned integer) value of brightness
@@ -138,13 +141,20 @@ void matrix_enter_ota_mode()
 {
     ESP_LOGI(TAG, "Switching matrix to the OTA progress screen");
 
-    // Stop stepping the Tetris animation, but leave the refresh timer running at its normal rate:
-    // it just re-scans the frame buffer already sitting in the panel's memory, so the screen stays
-    // lit for the whole (potentially long) transfer instead of going dark. Deliberately NOT sped up
-    // here (a previous attempt at that caused OTA write instability - it raises how often the timer
-    // races the flash-write pause below, and adds ISR overhead competing with the BLE stack for CPU).
+    // Stop stepping the Tetris animation, but leave the refresh timer running (it just re-scans the
+    // frame buffer already sitting in the panel's memory, so the screen stays lit for the whole
+    // transfer instead of going dark) - slowed down to DISPLAY_REFRESH_OTA_US, though: OTA transfers
+    // were proving unreliable on some units, and cutting how often this ISR interrupts the CPU frees
+    // up more headroom for the BLE stack. Reliably completing the transfer matters far more than a
+    // perfectly smooth progress screen.
     if (animationTimer)
         timerAlarmDisable(animationTimer);
+
+    if (timer) {
+        timerAlarmDisable(timer);
+        timerAlarmWrite(timer, DISPLAY_REFRESH_OTA_US, true);
+        timerAlarmEnable(timer);
+    }
 
     _ota_mode = true;
     _ota_percent_last = -1;
