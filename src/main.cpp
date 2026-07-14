@@ -201,6 +201,11 @@ void main_rtc_init()
     rtc.loadBrightness(&use_auto_brightness, &manual_brightness_value);
     matrix_set_auto_brightness(use_auto_brightness);
     matrix_set_manual_brightness(manual_brightness_value);
+
+    // Initialize runtime matrix color order setting from RTC
+    bool use_rrbbgg;
+    rtc.loadColorOrder(&use_rrbbgg);
+    matrix_set_color_order(use_rrbbgg);
 }
 
 // Hourly brightness schedule init with debug messages
@@ -300,6 +305,27 @@ uint8_t get_matrix_manual_brightness_on_ble_read()
     #endif
 
     return matrix_get_manual_brightness();
+}
+
+void set_matrix_color_order_on_ble_write(bool use_rrbbgg)
+{
+    matrix_set_color_order(use_rrbbgg);
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_matrix_color_order_on_ble_write(%d)", use_rrbbgg);
+    #endif
+
+    if (!rtc.saveColorOrder(use_rrbbgg))
+        ESP_LOGE(TAG, "Error: set_matrix_color_order_on_ble_write(...) > rtc.saveColorOrder(...)");
+}
+
+bool get_matrix_color_order_on_ble_read()
+{
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_matrix_color_order_on_ble_read()");
+    #endif
+
+    return matrix_get_color_order();
 }
 
 void set_matrix_hourly_brightness_on_ble_write(const uint8_t* data, size_t length)
@@ -533,6 +559,8 @@ void main_ble_init()
         &get_matrix_auto_brightness_on_ble_read,
         &set_matrix_manual_brightness_on_ble_write,
         &get_matrix_manual_brightness_on_ble_read,
+        &set_matrix_color_order_on_ble_write,
+        &get_matrix_color_order_on_ble_read,
         &set_matrix_hourly_brightness_on_ble_write,
         &get_matrix_hourly_brightness_on_ble_read,
         &set_matrix_alarm_on_ble_write,

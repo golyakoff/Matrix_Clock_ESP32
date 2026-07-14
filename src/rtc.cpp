@@ -13,6 +13,7 @@
 #define RTC_MEMORY_IS_ACTIVE_MASK       0b0000100000000000
 #define RTC_MEMORY_MANUAL_BRIGHT_MASK           0b00001111
 #define RTC_MEMORY_IS_AUTO_BRIGHT_MASK          0b00010000
+#define RTC_MEMORY_COLOR_ORDER_MASK             0b00100000
 #define RTC_MEMORY_SHOW_MASK                    0b00000001
 
 static const char* TAG = "RTC";
@@ -121,8 +122,14 @@ bool RealTimeClock::loadAlarm(rtc_alarm_index_t index, uint8_t *hours, uint8_t *
 
 bool RealTimeClock::saveBrightness(bool use_auto_brightness, uint8_t manual_brightness_value)
 {
-    uint8_t buffer = 
-        (manual_brightness_value & RTC_MEMORY_MANUAL_BRIGHT_MASK) +
+    // Read-modify-write: this register also holds the color order bit (see saveColorOrder()),
+    // so we must not blindly overwrite the whole byte here.
+    uint8_t buffer;
+    if (!_rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
+        return false;
+
+    buffer = (buffer & ~(RTC_MEMORY_MANUAL_BRIGHT_MASK | RTC_MEMORY_IS_AUTO_BRIGHT_MASK)) |
+        (manual_brightness_value & RTC_MEMORY_MANUAL_BRIGHT_MASK) |
         (use_auto_brightness ? RTC_MEMORY_IS_AUTO_BRIGHT_MASK : 0);
 
     return _rtc.writeBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer));
@@ -136,6 +143,30 @@ bool RealTimeClock::loadBrightness(bool *use_auto_brightness, uint8_t *manual_br
 
     *use_auto_brightness = (buffer & RTC_MEMORY_IS_AUTO_BRIGHT_MASK) > 0;
     *manual_brightness_value = (buffer & RTC_MEMORY_MANUAL_BRIGHT_MASK);
+
+    return true;
+}
+
+bool RealTimeClock::saveColorOrder(bool use_rrbbgg)
+{
+    // Read-modify-write: this register also holds the brightness settings (see saveBrightness()),
+    // so we must not blindly overwrite the whole byte here.
+    uint8_t buffer;
+    if (!_rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
+        return false;
+
+    buffer = (buffer & ~RTC_MEMORY_COLOR_ORDER_MASK) | (use_rrbbgg ? RTC_MEMORY_COLOR_ORDER_MASK : 0);
+
+    return _rtc.writeBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer));
+}
+
+bool RealTimeClock::loadColorOrder(bool *use_rrbbgg)
+{
+    uint8_t buffer;
+    if (!_rtc.readBuffer(DS3231_REG_ALARM1_HOUR, &buffer, sizeof(buffer)))
+        return false;
+
+    *use_rrbbgg = (buffer & RTC_MEMORY_COLOR_ORDER_MASK) > 0;
 
     return true;
 }

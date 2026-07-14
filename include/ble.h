@@ -40,6 +40,9 @@
 // Control point to setup manual brightness adjustment value
 #define MC_MANUAL_BRIGHT_VAL_CHAR_UUID      "117ED80D-AF6E-4E4D-B900-48F68725A7D3" // M Read, Write
 
+// Control point to switch the LED matrix pixel color order: 0 = RRGGBB (default), 1 = RRBBGG.
+#define MC_COLOR_ORDER_CHAR_UUID            "36B8588D-6F99-4BDC-8B6F-13089F234978" // M Read, Write
+
 // Hourly brightness schedule: 24 brightness nibbles (0..15), one per hour of day (index 0 = 00h..00:59, ... index 23 = 23h..23:59).
 // Used as the brightness source when auto brightness is enabled (MC_AUTO_BRIGHT_ENABLE_CHAR_UUID).
 #define MC_HOURLY_BRIGHTNESS_CHAR_UUID      "C2C5D9AA-4C0B-4A69-9E9B-9E1D8B7A2F31" // M Read, Write
@@ -89,6 +92,16 @@ typedef void (*ble_set_manual_bright_val_on_ble_write_t)(const uint8_t manual_br
  * @brief Type of a function for getting "manual brightness" value from the device when it requested by BLE.
  */
 typedef uint8_t (*ble_get_manual_bright_val_on_ble_read_t)();
+
+/**
+ * @brief Type of a function for setting the LED matrix color order to the device when it came from BLE.
+ */
+typedef void (*ble_set_color_order_on_ble_write_t)(const bool use_rrbbgg);
+
+/**
+ * @brief Type of a function for getting the LED matrix color order from the device when it requested by BLE.
+ */
+typedef bool (*ble_get_color_order_on_ble_read_t)();
 
 /**
  * @brief Type of a function for setting the hourly brightness schedule to the device when it came from BLE.
@@ -171,6 +184,8 @@ typedef void (*ble_set_ota_data_ble_write_t)(const uint8_t* data, size_t length)
  * @param ble_get_auto_bright_en_on_ble_read_cb Callback function for getting "auto brightness" state from the device when it requested by BLE.
  * @param ble_set_manual_bright_val_on_ble_write_cb Callback function for setting "manual brightness" value to the device when it came from BLE.
  * @param ble_get_manual_bright_val_on_ble_read_cb Callback function for getting "manual brightness" value from the device when it requested by BLE.
+ * @param ble_set_color_order_on_ble_write_cb Callback function for setting the LED matrix color order to the device when it came from BLE.
+ * @param ble_get_color_order_on_ble_read_cb Callback function for getting the LED matrix color order from the device when it requested by BLE.
  * @param ble_set_hourly_brightness_on_ble_write_cb Callback function for setting the hourly brightness schedule to the device when it came from BLE.
  * @param ble_get_hourly_brightness_on_ble_read_cb Callback function for getting the hourly brightness schedule from the device when it requested by BLE.
  * @param ble_set_alarm_on_ble_write_cb Callback function for setting 1 of 2 alarms' settings to the device when it came from BLE.
@@ -190,6 +205,8 @@ void ble_init(
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_color_order_on_ble_write_t ble_set_color_order_on_ble_write_cb,
+    ble_get_color_order_on_ble_read_t ble_get_color_order_on_ble_read_cb,
     ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
     ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,

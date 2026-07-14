@@ -1,3 +1,9 @@
+Release 1.3.0
+
+- [x] Added a runtime LED matrix color order setting (RRGGBB vs RRBBGG, i.e. green/blue swapped) previously hardcoded at compile time in `matrix.h`. Controlled over a new BLE characteristic (`MC_COLOR_ORDER_CHAR_UUID`, read/write, 1 byte: 0 = RRGGBB default, 1 = RRBBGG) and applied to the display immediately on write. The setting is persisted in a spare bit of the DS3231 RTC's repurposed alarm memory (byte `09h`, alongside the existing brightness settings) rather than flash/NVS, and restored on boot
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.2.4...v1.3.0
+
 Release 1.2.4
 
 - [x] Fixed the "Update failed" screen only flashing briefly on a cancelled OTA update instead of holding for 10 seconds before rebooting (regression from v1.2.3): aborting now also used to wait for the write queue to drain directly on the BLE stack's own task, blocking it for however long that took - the same problem the write queue was added to avoid, just on the cancel path this time. Aborting now just asks the writer task to finish up on its own instead of waiting for it

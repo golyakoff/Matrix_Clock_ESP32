@@ -29,6 +29,7 @@ static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteri
 
 static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mcco_char(MC_COLOR_ORDER_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mchbt_char(MC_HOURLY_BRIGHTNESS_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
@@ -59,6 +60,9 @@ static ble_set_auto_bright_en_on_ble_write_t _set_auto_bright_en_on_ble_write = 
 
 static ble_get_manual_bright_val_on_ble_read_t _get_manual_bright_val_on_ble_read = nullptr;
 static ble_set_manual_bright_val_on_ble_write_t _set_manual_bright_val_on_ble_write = nullptr;
+
+static ble_get_color_order_on_ble_read_t _get_color_order_on_ble_read = nullptr;
+static ble_set_color_order_on_ble_write_t _set_color_order_on_ble_write = nullptr;
 
 static ble_get_hourly_brightness_on_ble_read_t _get_hourly_brightness_on_ble_read = nullptr;
 static ble_set_hourly_brightness_on_ble_write_t _set_hourly_brightness_on_ble_write = nullptr;
@@ -208,7 +212,34 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
             #endif
-            
+
+            return;
+        }
+
+        if(pCharacteristic->getUUID().equals(_mcco_char.getUUID()) && param->write.len == 1)
+        {
+            if (param->write.value[0] > 1)
+            {
+                ESP_LOGE(TAG, "Error, value of _mcco_char provided is out of range [0, 1].");
+                return;
+            }
+
+            if (_set_color_order_on_ble_write == nullptr)
+            {
+                ESP_LOGE(TAG, "Error: callback _set_color_order_on_ble_write is nullptr.");
+                return;
+            }
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "Calling callback _set_color_order_on_ble_write(bool)...");
+            #endif
+
+            _set_color_order_on_ble_write(param->write.value[0] == 1);
+
+            #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+            ESP_LOGD(TAG, "OK");
+            #endif
+
             return;
         }
 
@@ -370,6 +401,14 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
+        if(pCharacteristic->getUUID().equals(_mcco_char.getUUID()))
+        {
+            bool use_rrbbgg = _get_color_order_on_ble_read();
+            uint8_t data_val[1] = { static_cast<uint8_t>(use_rrbbgg ? 1U : 0U) };
+            pCharacteristic->setValue(data_val, sizeof(data_val));
+            return;
+        }
+
         if(pCharacteristic->getUUID().equals(_mchbt_char.getUUID()))
         {
             uint8_t table[MC_HOURLY_BRIGHTNESS_LEN];
@@ -422,6 +461,8 @@ void ble_init(
     ble_get_auto_bright_en_on_ble_read_t ble_get_auto_bright_en_on_ble_read_cb,
     ble_set_manual_bright_val_on_ble_write_t ble_set_manual_bright_val_on_ble_write_cb,
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
+    ble_set_color_order_on_ble_write_t ble_set_color_order_on_ble_write_cb,
+    ble_get_color_order_on_ble_read_t ble_get_color_order_on_ble_read_cb,
     ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
     ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
@@ -444,6 +485,9 @@ void ble_init(
 
     _set_manual_bright_val_on_ble_write = ble_set_manual_bright_val_on_ble_write_cb;
     _get_manual_bright_val_on_ble_read = ble_get_manual_bright_val_on_ble_read_cb;
+
+    _set_color_order_on_ble_write = ble_set_color_order_on_ble_write_cb;
+    _get_color_order_on_ble_read = ble_get_color_order_on_ble_read_cb;
 
     _set_hourly_brightness_on_ble_write = ble_set_hourly_brightness_on_ble_write_cb;
     _get_hourly_brightness_on_ble_read = ble_get_hourly_brightness_on_ble_read_cb;
@@ -479,7 +523,7 @@ void ble_init(
 
     ESP_LOGI(TAG, "Create primary service...");
     // GATT handle budget: 1 for the service declaration + 2 per characteristic (declaration and value)
-    // + 1 per descriptor. With 13 characteristics and 4 BLE2902 descriptors that is 1 + 26 + 4 = 31.
+    // + 1 per descriptor. With 14 characteristics and 4 BLE2902 descriptors that is 1 + 28 + 4 = 33.
     // Keep spare handles here: once the budget is exhausted the stack silently stops handing out
     // handles, and the characteristics/descriptors at the end of the table stop working.
     BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 40U, 0U);
@@ -522,6 +566,11 @@ void ble_init(
     bleService->addCharacteristic(&_mcmbv_char);
     _mcmbv_char.setCallbacks(&_myCharacteristicCallbacks);
     ESP_LOGI(TAG, "OK: %s", _mcmbv_char.toString().c_str());
+
+    ESP_LOGI(TAG, "Add MatrixClock Color Order characteristic...");
+    bleService->addCharacteristic(&_mcco_char);
+    _mcco_char.setCallbacks(&_myCharacteristicCallbacks);
+    ESP_LOGI(TAG, "OK: %s", _mcco_char.toString().c_str());
 
     ESP_LOGI(TAG, "Add MatrixClock Hourly Brightness Schedule characteristic...");
     bleService->addCharacteristic(&_mchbt_char);

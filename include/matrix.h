@@ -12,12 +12,6 @@
 #define P_OE    (25U)   /** @brief GPIO connected to OE pin on the matrix */
 
 /**
- * @brief Pixel order customizable for Matrix (from "PxMatrix.h")
- */
-//#define COLOR_ORDER RRBBGG
-#define COLOR_ORDER RRGGBB
-
-/**
  * @brief Initial honest brightness for the welcome and "powered by" screens.
  *        Required range: 7..255.
  */
@@ -171,5 +165,21 @@ void matrix_set_manual_brightness(uint8_t manual_brightness_nibble);
  * @return the integer value in range 0..15
  */
 uint8_t matrix_get_manual_brightness( );
+
+/**
+ * @brief Sets the LED matrix pixel color order and applies it immediately.
+ *        Used when update comes from BLE, or once at boot with the value loaded from RTC memory.
+ *
+ * @param use_rrbbgg true to drive the matrix with the RRBBGG pixel order, false for the default RRGGBB.
+ */
+void matrix_set_color_order(bool use_rrbbgg);
+
+/**
+ * @brief Gets the LED matrix pixel color order currently in use.
+ *        Used when the actual value is requested by BLE.
+ *
+ * @return true if RRBBGG is in use, false if the default RRGGBB is in use.
+ */
+bool matrix_get_color_order();
 
 #endif // __MATRIX_H__

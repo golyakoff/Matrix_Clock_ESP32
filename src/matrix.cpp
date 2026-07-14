@@ -25,6 +25,8 @@ static uint8_t _manual_brightness_nibble = INIT_BRIGHTNESS;
 static bool _use_auto_brightness = false;
 static bool _show = true;
 
+static bool _use_rrbbgg = false; // false = RRGGBB (previous hardcoded default), true = RRBBGG
+
 static bool _show_colon = true;
 static volatile bool _finished_animating = false;
 static bool _display_intro = true;
@@ -77,7 +79,7 @@ void matrix_init(struct tm *init_dt)
 
     // Initialize display library
     display.begin(16); // Generic ESP32 including Huzzah
-    display.setColorOrder(COLOR_ORDER);
+    display.setColorOrder(_use_rrbbgg ? RRBBGG : RRGGBB);
     display.flushDisplay();
 
     // Setup timer for driving display
@@ -290,6 +292,17 @@ void matrix_set_manual_brightness(uint8_t manual_brightness_nibble)
 uint8_t matrix_get_manual_brightness()
 {
     return _manual_brightness_nibble;
+}
+
+void matrix_set_color_order(bool use_rrbbgg)
+{
+    _use_rrbbgg = use_rrbbgg;
+    display.setColorOrder(_use_rrbbgg ? RRBBGG : RRGGBB);
+}
+
+bool matrix_get_color_order()
+{
+    return _use_rrbbgg;
 }
 
 #pragma endregion // Public methods definition

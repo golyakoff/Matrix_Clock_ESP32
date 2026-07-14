@@ -21,13 +21,19 @@
 //          0 means the minimum visible brightness
 //          15 means the maximum visible brightness
 //
-//          The next 1 bit is used for saving the value defining whether 
-//          the auto brightness adjustment feature is enabled (1) or 
+//          The next 1 bit is used for saving the value defining whether
+//          the auto brightness adjustment feature is enabled (1) or
 //          the constant manual value should ve used instead (0).
+//
+//          The next 1 bit is used to store the LED matrix color order:
+//          0 = RRGGBB (default), 1 = RRBBGG i.e. green/blue swapped, red unchanged
+//          (see RealTimeClock::saveColorOrder()/loadColorOrder()).
+//
+//          * 2 highest bits: Reserved for future.
 //
 // 0Ah:     * All 8 bits:  Reserved for future.
 //
-// OBh-0Ch: Lowest 11 bits starting from DS3231_REG_ALARM1_SEC are used to store 
+// OBh-0Ch: Lowest 11 bits starting from DS3231_REG_ALARM1_SEC are used to store
 //          "on" alarm time as an integer value equals to the 
 //          total number of minutes: 0-1439.
 //
@@ -160,7 +166,26 @@ class RealTimeClock
          * @return true if saving successfully done, otherwise false
          */
         bool loadBrightness(bool *use_auto_brightness, uint8_t *manual_brightness_value);
-    
+
+        /**
+         * @brief Saves the LED matrix color order setting into memory.
+         *
+         * @param use_rrbbgg whether the matrix should be driven with the RRBBGG pixel order (true)
+         *        instead of the default RRGGBB (false).
+         * @return true if saving successfully done, otherwise false
+         */
+        bool saveColorOrder(bool use_rrbbgg);
+
+        /**
+         * @brief Loads the LED matrix color order setting from memory.
+         *
+         * @param use_rrbbgg the pointer to the memory for storing the value defining whether
+         *        the matrix should be driven with the RRBBGG pixel order (true) instead of
+         *        the default RRGGBB (false).
+         * @return true if loading successfully done, otherwise false
+         */
+        bool loadColorOrder(bool *use_rrbbgg);
+
     private:
         /**
          * @brief internal RTC object
