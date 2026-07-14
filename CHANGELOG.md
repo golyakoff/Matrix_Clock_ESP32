@@ -1,3 +1,9 @@
+Release 1.2.3
+
+- [x] Fixed OTA transfers still dropping the BLE connection mid-way (up to ~87% on some units) even after v1.2.2: BLE characteristic writes are handled directly on the Bluedroid stack's own task, and each received chunk used to be written to flash synchronously right there - a slow flash write (a sector erase can take tens of ms) stalled the BLE stack's own processing along with it. Received chunks are now queued and written to flash from a dedicated task pinned to core 1 (BLE stays on core 0), so the BLE write callback just copies ~512 bytes into a queue and returns immediately instead of waiting on the flash write
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.2.2...v1.2.3
+
 Release 1.2.2
 
 - [x] Fixed OTA updates being unreliable (BLE connection drops during the firmware transfer, sometimes as early as 30-70%) on some units: the display refresh timer now runs at half its normal rate while an OTA update is in progress, leaving more CPU headroom for the BLE stack. The OTA progress screen is a bit less smooth as a result, but a reliably completing update matters more than a perfectly fluid one

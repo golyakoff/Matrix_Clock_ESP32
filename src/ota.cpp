@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #include <Update.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "nvs.h"
@@ -17,6 +20,30 @@ static ota_status_cb_t _on_ota_status_cb = nullptr;
 static ota_complete_cb_t _on_ota_complete_cb = nullptr;
 static ota_flash_write_begin_cb_t _on_flash_write_begin_cb = nullptr;
 static ota_flash_write_end_cb_t _on_flash_write_end_cb = nullptr;
+
+// set_ota_data_ble_write() (main.cpp) used to call straight into the flash write below, but that
+// callback runs directly on the Bluedroid stack's own task - a slow flash write (a sector erase can
+// take tens of ms) stalled the BLE stack's own processing right along with it, which was causing
+// dropped connections mid-transfer. Received chunks are now queued here and written to flash from a
+// dedicated task pinned to core 1 (the BLE stack is pinned to core 0), so a BLE write callback just
+// copies ~512 bytes into the queue and returns immediately.
+#define OTA_WRITE_QUEUE_DEPTH    (8U)
+#define OTA_WRITE_CHUNK_MAX      (512U)
+#define OTA_WRITER_TASK_STACK    (8192U)
+#define OTA_WRITER_TASK_PRIORITY (1U)
+
+typedef struct {
+    uint8_t data[OTA_WRITE_CHUNK_MAX];
+    size_t length;
+} ota_write_item_t;
+
+static QueueHandle_t _write_queue = nullptr;
+static TaskHandle_t _writer_task_handle = nullptr;
+static volatile bool _writer_busy = false;
+
+static bool ota_write_now(uint8_t* data, size_t length);
+static void ota_writer_task(void* pvParameters);
+static bool ota_wait_for_write_queue_drain(uint32_t timeout_ms);
 
 /**
  * @brief Begins the OTA update process and prepares for firmware data reception.
@@ -49,6 +76,29 @@ bool ota_begin(
     _on_flash_write_begin_cb = on_flash_write_begin_cb;
     _on_flash_write_end_cb = on_flash_write_end_cb;
 
+    // Created once and left running: an OTA attempt always ends in a reboot (success reboots
+    // immediately, failure/abort reboots itself 10s later - see main.cpp), so there's no case
+    // where this needs to be torn down and recreated within the same power-on session.
+    if (!_write_queue) {
+        _write_queue = xQueueCreate(OTA_WRITE_QUEUE_DEPTH, sizeof(ota_write_item_t));
+        if (!_write_queue) {
+            ota_emit_status("Failed to create OTA write queue", true);
+            _ota_in_progress = false;
+            return false;
+        }
+    }
+
+    if (!_writer_task_handle) {
+        BaseType_t created = xTaskCreatePinnedToCore(
+            ota_writer_task, "ota_writer", OTA_WRITER_TASK_STACK, nullptr,
+            OTA_WRITER_TASK_PRIORITY, &_writer_task_handle, 1);
+        if (created != pdPASS) {
+            ota_emit_status("Failed to create OTA writer task", true);
+            _ota_in_progress = false;
+            return false;
+        }
+    }
+
     // Log partition information
     char status_msg[128];
     snprintf(
@@ -70,12 +120,13 @@ bool ota_begin(
 }
 
 /**
- * @brief Writes firmware data to the OTA update partition.
- * 
+ * @brief Queues firmware data to be written to the OTA update partition by the writer task.
+ *
  * @param data Pointer to the firmware data buffer to be written.
  * @param length Size of the data buffer in bytes.
- * @return true if data was written successfully.
- * @return false if write operation failed or OTA process is not active.
+ * @return true if the chunk was queued successfully.
+ * @return false if the chunk was rejected (OTA not active, bad params, or the writer task
+ *         isn't draining the queue - e.g. because it's stuck or was never created).
  */
 bool ota_write(uint8_t* data, size_t length) {
     if (!_ota_in_progress) {
@@ -83,15 +134,45 @@ bool ota_write(uint8_t* data, size_t length) {
         return false;
     }
 
-    if (data == NULL || length == 0) {
+    if (data == NULL || length == 0 || length > OTA_WRITE_CHUNK_MAX) {
         ota_emit_status("Invalid data parameters", true);
         return false;
     }
 
-    // Write data to the update partition. Pausing must happen *before* the delay(1): disabling a
-    // timer alarm doesn't abort an already-in-flight interrupt, so the delay is what actually
-    // guarantees any display-refresh ISR invocation that was already running (or about to fire)
-    // has finished before the flash cache goes down for the write below.
+    if (!_write_queue) {
+        ota_emit_status("OTA write queue not initialized", true);
+        return false;
+    }
+
+    ota_write_item_t item;
+    memcpy(item.data, data, length);
+    item.length = length;
+
+    // Bounded wait: if the writer task hasn't drained enough of the queue within half a second,
+    // something is seriously wrong (e.g. it crashed) - fail loudly instead of blocking the BLE
+    // stack's own task indefinitely.
+    if (xQueueSend(_write_queue, &item, pdMS_TO_TICKS(500)) != pdTRUE) {
+        ota_emit_status("OTA write queue full - writer task stalled", true);
+        ota_abort();
+        return false;
+    }
+
+    return true;
+}
+
+// Runs on its own task (core 1, see ota_begin()) so a slow flash write never blocks the BLE
+// stack's task. Does the actual work the old synchronous ota_write() used to do.
+static bool ota_write_now(uint8_t* data, size_t length) {
+    // Guards against a stale item that was still sitting in the queue when an abort/failure
+    // already ended the session (e.g. via a previous item's own failure) - Update isn't safe to
+    // touch once Update.end()/Update.end(false) has already been called on it.
+    if (!_ota_in_progress)
+        return false;
+
+    // Pausing must happen *before* the delay(1): disabling a timer alarm doesn't abort an
+    // already-in-flight interrupt, so the delay is what actually guarantees any display-refresh
+    // ISR invocation that was already running (or about to fire) has finished before the flash
+    // cache goes down for the write below.
     if (_on_flash_write_begin_cb)
         _on_flash_write_begin_cb();
 
@@ -104,7 +185,7 @@ bool ota_write(uint8_t* data, size_t length) {
 
     if (written != length) {
         char error_msg[64];
-        snprintf(error_msg, sizeof(error_msg), 
+        snprintf(error_msg, sizeof(error_msg),
                  "Write failed: wrote %d of %d bytes", written, length);
         ota_emit_status(error_msg, true);
         ota_abort();
@@ -117,6 +198,35 @@ bool ota_write(uint8_t* data, size_t length) {
     return true;
 }
 
+static void ota_writer_task(void* pvParameters) {
+    ota_write_item_t item;
+    for (;;) {
+        if (xQueueReceive(_write_queue, &item, portMAX_DELAY) == pdTRUE) {
+            _writer_busy = true;
+            ota_write_now(item.data, item.length);
+            _writer_busy = false;
+        }
+    }
+}
+
+// ota_end()/ota_abort() call Update.end()/esp_ota_set_boot_partition() directly from the BLE
+// stack's task, and Update isn't safe to touch from two tasks at once - this must be called
+// before either of them to make sure the writer task isn't mid-write.
+static bool ota_wait_for_write_queue_drain(uint32_t timeout_ms) {
+    // ota_write_now()'s own failure path calls ota_abort() from the writer task itself - it can't
+    // be concurrently mid-write with itself, and waiting on _writer_busy here would deadlock
+    // (it's still true, since ota_write_now() hasn't returned yet).
+    if (_writer_task_handle && xTaskGetCurrentTaskHandle() == _writer_task_handle)
+        return true;
+
+    uint32_t waited = 0;
+    while (_write_queue && (uxQueueMessagesWaiting(_write_queue) > 0 || _writer_busy) && waited < timeout_ms) {
+        delay(10);
+        waited += 10;
+    }
+    return !_write_queue || (uxQueueMessagesWaiting(_write_queue) == 0 && !_writer_busy);
+}
+
 /**
  * @brief Finalizes the OTA update process and validates the written firmware.
  * 
@@ -126,6 +236,15 @@ bool ota_write(uint8_t* data, size_t length) {
 bool ota_end() {
     if (!_ota_in_progress) {
         ota_emit_status("OTA not started", true);
+        return false;
+    }
+
+    // Flush every chunk still sitting in the write queue first - otherwise Update.end() could
+    // finalize a partition that's missing the last few chunks, and calling it concurrently with
+    // the writer task still mid-write isn't safe.
+    if (!ota_wait_for_write_queue_drain(5000)) {
+        ota_emit_status("Timed out waiting for pending OTA writes to flush", true);
+        ota_abort();
         return false;
     }
 
@@ -204,6 +323,10 @@ bool ota_end() {
  */
 void ota_abort() {
     if (_ota_in_progress) {
+        // Make sure the writer task isn't mid-write before touching Update from here too (no-op
+        // if we ARE the writer task - see ota_wait_for_write_queue_drain()).
+        ota_wait_for_write_queue_drain(2000);
+
         // Abort the update and clean up resources. Same flash-write hazard as in ota_end().
         if (_on_flash_write_begin_cb)
             _on_flash_write_begin_cb();
@@ -220,6 +343,12 @@ void ota_abort() {
     _ota_in_progress = false;
     _firmware_bytes_received = 0;
     _firmware_total_size = 0;
+
+    // Discard any chunks that were still queued when this session ended - ota_write_now() also
+    // guards against processing them (belt and suspenders, and this drops them immediately rather
+    // than one at a time as the writer task happens to dequeue each).
+    if (_write_queue)
+        xQueueReset(_write_queue);
 }
 
 /**
