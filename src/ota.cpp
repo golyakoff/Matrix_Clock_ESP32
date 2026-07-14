@@ -40,10 +40,12 @@ typedef struct {
 static QueueHandle_t _write_queue = nullptr;
 static TaskHandle_t _writer_task_handle = nullptr;
 static volatile bool _writer_busy = false;
+static volatile bool _abort_requested = false;
 
 static bool ota_write_now(uint8_t* data, size_t length);
 static void ota_writer_task(void* pvParameters);
 static bool ota_wait_for_write_queue_drain(uint32_t timeout_ms);
+static void ota_abort_now();
 
 /**
  * @brief Begins the OTA update process and prepares for firmware data reception.
@@ -201,10 +203,17 @@ static bool ota_write_now(uint8_t* data, size_t length) {
 static void ota_writer_task(void* pvParameters) {
     ota_write_item_t item;
     for (;;) {
-        if (xQueueReceive(_write_queue, &item, portMAX_DELAY) == pdTRUE) {
+        // Bounded wait (rather than portMAX_DELAY) so this loop wakes up regularly even with an
+        // empty queue, to notice a pending abort request below.
+        if (xQueueReceive(_write_queue, &item, pdMS_TO_TICKS(100)) == pdTRUE) {
             _writer_busy = true;
             ota_write_now(item.data, item.length);
             _writer_busy = false;
+        }
+
+        if (_abort_requested) {
+            _abort_requested = false;
+            ota_abort_now();
         }
     }
 }
@@ -322,11 +331,21 @@ bool ota_end() {
  *        Any partially written firmware will be discarded.
  */
 void ota_abort() {
-    if (_ota_in_progress) {
-        // Make sure the writer task isn't mid-write before touching Update from here too (no-op
-        // if we ARE the writer task - see ota_wait_for_write_queue_drain()).
-        ota_wait_for_write_queue_drain(2000);
+    // If we're the writer task itself (ota_write_now()'s own failure path), it's safe to run this
+    // immediately - we can't be concurrently mid-write with ourselves. Otherwise (BLE stack task,
+    // e.g. an explicit Abort command from the phone, or one of ota_end()'s failure paths), don't
+    // block waiting for the writer task to finish: just ask it to abort once it's free. Blocking
+    // the BLE stack's own task for however long that takes was itself destabilizing the connection
+    // - the exact problem this whole write queue exists to avoid in the first place.
+    if (_writer_task_handle && xTaskGetCurrentTaskHandle() == _writer_task_handle) {
+        ota_abort_now();
+    } else {
+        _abort_requested = true;
+    }
+}
 
+static void ota_abort_now() {
+    if (_ota_in_progress) {
         // Abort the update and clean up resources. Same flash-write hazard as in ota_end().
         if (_on_flash_write_begin_cb)
             _on_flash_write_begin_cb();
@@ -338,7 +357,7 @@ void ota_abort() {
         ota_emit_status("OTA update aborted", true);
         ota_emit_complete(false, "Update aborted");
     }
-    
+
     // Reset all state variables
     _ota_in_progress = false;
     _firmware_bytes_received = 0;

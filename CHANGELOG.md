@@ -1,4 +1,8 @@
-Release 1.2.3
+Release 1.2.4
+
+- [x] Fixed the "Update failed" screen only flashing briefly on a cancelled OTA update instead of holding for 10 seconds before rebooting (regression from v1.2.3): aborting now also used to wait for the write queue to drain directly on the BLE stack's own task, blocking it for however long that took - the same problem the write queue was added to avoid, just on the cancel path this time. Aborting now just asks the writer task to finish up on its own instead of waiting for it
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.2.3...v1.2.4
 
 - [x] Fixed OTA transfers still dropping the BLE connection mid-way (up to ~87% on some units) even after v1.2.2: BLE characteristic writes are handled directly on the Bluedroid stack's own task, and each received chunk used to be written to flash synchronously right there - a slow flash write (a sector erase can take tens of ms) stalled the BLE stack's own processing along with it. Received chunks are now queued and written to flash from a dedicated task pinned to core 1 (BLE stays on core 0), so the BLE write callback just copies ~512 bytes into a queue and returns immediately instead of waiting on the flash write
 
