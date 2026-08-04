@@ -182,4 +182,31 @@ void matrix_set_color_order(bool use_rrbbgg);
  */
 bool matrix_get_color_order();
 
+/**
+ * @brief Configures the "Day Splash" feature: an animated screensaver played over the 00:00 minute
+ *        at the day boundary instead of the usual Tetris layout.
+ *        Used when update comes from BLE, or once at boot with the value loaded from RTC memory.
+ *
+ * @param enabled true to play the animation at the day boundary, false to disable it.
+ * @param index the selected animation index (0..7); out-of-range values fall back to animation 0.
+ */
+void matrix_set_day_splash(bool enabled, uint8_t index);
+
+/**
+ * @brief Gets the current "Day Splash" configuration.
+ *        Used when the actual value is requested by BLE.
+ *
+ * @param enabled the pointer to the memory for storing whether the feature is enabled.
+ * @param index the pointer to the memory for storing the selected animation index (0..7).
+ */
+void matrix_get_day_splash(bool *enabled, uint8_t *index);
+
+/**
+ * @brief Requests an immediate one-off "play now" preview of the currently selected animation,
+ *        independent of the time of day (used by the app to test the selected animation).
+ *        The request is served from matrix_100hz_loop() and ignored while the display is off,
+ *        during OTA, or while an animation is already playing.
+ */
+void matrix_request_day_splash_preview();
+
 #endif // __MATRIX_H__

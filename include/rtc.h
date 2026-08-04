@@ -31,7 +31,13 @@
 //
 //          * 2 highest bits: Reserved for future.
 //
-// 0Ah:     * All 8 bits:  Reserved for future.
+// 0Ah:     Lowest 1 bit stores whether the "Day Splash" feature is enabled (1) or not (0):
+//          an animated GIF screensaver played over the 00:00 minute at the day boundary
+//          (see RealTimeClock::saveDaySplash()/loadDaySplash()).
+//
+//          The next 3 bits store the selected animation index (0..7).
+//
+//          * 4 highest bits: Reserved for future.
 //
 // OBh-0Ch: Lowest 11 bits starting from DS3231_REG_ALARM1_SEC are used to store
 //          "on" alarm time as an integer value equals to the 
@@ -185,6 +191,24 @@ class RealTimeClock
          * @return true if loading successfully done, otherwise false
          */
         bool loadColorOrder(bool *use_rrbbgg);
+
+        /**
+         * @brief Saves the Day Splash setting (enabled flag + selected animation index) into memory.
+         *
+         * @param enabled whether the day-boundary animated screensaver is enabled.
+         * @param index the selected animation index (0..7).
+         * @return true if saving successfully done, otherwise false
+         */
+        bool saveDaySplash(bool enabled, uint8_t index);
+
+        /**
+         * @brief Loads the Day Splash setting (enabled flag + selected animation index) from memory.
+         *
+         * @param enabled the pointer to the memory for storing whether the feature is enabled.
+         * @param index the pointer to the memory for storing the selected animation index (0..7).
+         * @return true if loading successfully done, otherwise false
+         */
+        bool loadDaySplash(bool *enabled, uint8_t *index);
 
     private:
         /**

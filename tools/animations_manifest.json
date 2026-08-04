@@ -1,0 +1,9 @@
+{
+  "animations": [
+    {
+      "slug": "nyancat",
+      "name": "Nyan Cat",
+      "source": "img/nyan_64x32.gif"
+    }
+  ]
+}

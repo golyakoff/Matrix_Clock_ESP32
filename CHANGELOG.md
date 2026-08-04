@@ -1,3 +1,9 @@
+Release 1.4.0
+
+- [x] Added "Day Splash": an animated GIF screensaver played over the 00:00 minute at the day boundary as an easter egg. Instead of the usual falling-Tetris layout, the `23:59 -> 00:00` change starts the selected animation looping and it keeps looping for the whole 00:00 minute; at 00:01 the clock returns and the digits are laid out with Tetris as usual. It plays only while the display is on, so it is skipped if the night off-alarm has the panel off at midnight. Controlled over a new BLE characteristic (`MC_DAY_SPLASH_CHAR_UUID`, read/write, 1 byte: bit0 = enabled, bits4..6 = animation index 0..7, bit3 = "play now" preview command) with the enabled flag and selected index persisted in a spare byte of the DS3231 RTC's repurposed alarm memory (byte `0Ah`) and restored on boot. Animations are stored as generated RGB565 headers under `include/animations/` (first one: Nyan Cat), produced from a source GIF by `tools/gen_animation.py`; different animations may have different frame counts and per-frame timings
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.3.0...v1.4.0
+
 Release 1.3.0
 
 - [x] Added a runtime LED matrix color order setting (RRGGBB vs RRBBGG, i.e. green/blue swapped) previously hardcoded at compile time in `matrix.h`. Controlled over a new BLE characteristic (`MC_COLOR_ORDER_CHAR_UUID`, read/write, 1 byte: 0 = RRGGBB default, 1 = RRBBGG) and applied to the display immediately on write. The setting is persisted in a spare bit of the DS3231 RTC's repurposed alarm memory (byte `09h`, alongside the existing brightness settings) rather than flash/NVS, and restored on boot

@@ -206,6 +206,12 @@ void main_rtc_init()
     bool use_rrbbgg;
     rtc.loadColorOrder(&use_rrbbgg);
     matrix_set_color_order(use_rrbbgg);
+
+    // Initialize runtime Day Splash setting from RTC
+    bool day_splash_enabled;
+    uint8_t day_splash_index;
+    rtc.loadDaySplash(&day_splash_enabled, &day_splash_index);
+    matrix_set_day_splash(day_splash_enabled, day_splash_index);
 }
 
 // Hourly brightness schedule init with debug messages
@@ -326,6 +332,31 @@ bool get_matrix_color_order_on_ble_read()
     #endif
 
     return matrix_get_color_order();
+}
+
+void set_day_splash_on_ble_write(bool enabled, uint8_t index, bool preview_now)
+{
+    matrix_set_day_splash(enabled, index);
+
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called set_day_splash_on_ble_write(en=%d, idx=%d, preview=%d)", enabled, index, preview_now);
+    #endif
+
+    if (!rtc.saveDaySplash(enabled, index))
+        ESP_LOGE(TAG, "Error: set_day_splash_on_ble_write(...) > rtc.saveDaySplash(...)");
+
+    // A "play now" preview is transient and time-independent, so it isn't persisted - just fired.
+    if (preview_now)
+        matrix_request_day_splash_preview();
+}
+
+void get_day_splash_on_ble_read(bool *enabled, uint8_t *index)
+{
+    #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
+    ESP_LOGD(TAG, "Called get_day_splash_on_ble_read()");
+    #endif
+
+    matrix_get_day_splash(enabled, index);
 }
 
 void set_matrix_hourly_brightness_on_ble_write(const uint8_t* data, size_t length)
@@ -561,6 +592,8 @@ void main_ble_init()
         &get_matrix_manual_brightness_on_ble_read,
         &set_matrix_color_order_on_ble_write,
         &get_matrix_color_order_on_ble_read,
+        &set_day_splash_on_ble_write,
+        &get_day_splash_on_ble_read,
         &set_matrix_hourly_brightness_on_ble_write,
         &get_matrix_hourly_brightness_on_ble_read,
         &set_matrix_alarm_on_ble_write,

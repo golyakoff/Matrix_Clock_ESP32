@@ -43,6 +43,11 @@
 // Control point to switch the LED matrix pixel color order: 0 = RRGGBB (default), 1 = RRBBGG.
 #define MC_COLOR_ORDER_CHAR_UUID            "36B8588D-6F99-4BDC-8B6F-13089F234978" // M Read, Write
 
+// Day Splash control point: an animated screensaver played over the 00:00 minute at the day
+// boundary. Single byte: bit0 = enabled, bits4..6 = animation index (0..7),
+// bit3 = "play now" preview command (fires an immediate one-off preview, independent of time).
+#define MC_DAY_SPLASH_CHAR_UUID             "A3F1C2D4-5B6E-47A8-9C0D-1E2F3A4B5C6D" // M Read, Write
+
 // Hourly brightness schedule: 24 brightness nibbles (0..15), one per hour of day (index 0 = 00h..00:59, ... index 23 = 23h..23:59).
 // Used as the brightness source when auto brightness is enabled (MC_AUTO_BRIGHT_ENABLE_CHAR_UUID).
 #define MC_HOURLY_BRIGHTNESS_CHAR_UUID      "C2C5D9AA-4C0B-4A69-9E9B-9E1D8B7A2F31" // M Read, Write
@@ -102,6 +107,23 @@ typedef void (*ble_set_color_order_on_ble_write_t)(const bool use_rrbbgg);
  * @brief Type of a function for getting the LED matrix color order from the device when it requested by BLE.
  */
 typedef bool (*ble_get_color_order_on_ble_read_t)();
+
+/**
+ * @brief Type of a function for setting the Day Splash configuration when it came from BLE.
+ *
+ * @param enabled whether the day-boundary animated screensaver is enabled.
+ * @param index the selected animation index (0..7).
+ * @param preview_now true if an immediate one-off preview of the selected animation was requested.
+ */
+typedef void (*ble_set_day_splash_on_ble_write_t)(const bool enabled, const uint8_t index, const bool preview_now);
+
+/**
+ * @brief Type of a function for getting the Day Splash configuration when it requested by BLE.
+ *
+ * @param enabled the pointer to the memory for storing whether the feature is enabled.
+ * @param index the pointer to the memory for storing the selected animation index (0..7).
+ */
+typedef void (*ble_get_day_splash_on_ble_read_t)(bool* enabled, uint8_t* index);
 
 /**
  * @brief Type of a function for setting the hourly brightness schedule to the device when it came from BLE.
@@ -186,6 +208,8 @@ typedef void (*ble_set_ota_data_ble_write_t)(const uint8_t* data, size_t length)
  * @param ble_get_manual_bright_val_on_ble_read_cb Callback function for getting "manual brightness" value from the device when it requested by BLE.
  * @param ble_set_color_order_on_ble_write_cb Callback function for setting the LED matrix color order to the device when it came from BLE.
  * @param ble_get_color_order_on_ble_read_cb Callback function for getting the LED matrix color order from the device when it requested by BLE.
+ * @param ble_set_day_splash_on_ble_write_cb Callback function for setting the Day Splash configuration to the device when it came from BLE.
+ * @param ble_get_day_splash_on_ble_read_cb Callback function for getting the Day Splash configuration from the device when it requested by BLE.
  * @param ble_set_hourly_brightness_on_ble_write_cb Callback function for setting the hourly brightness schedule to the device when it came from BLE.
  * @param ble_get_hourly_brightness_on_ble_read_cb Callback function for getting the hourly brightness schedule from the device when it requested by BLE.
  * @param ble_set_alarm_on_ble_write_cb Callback function for setting 1 of 2 alarms' settings to the device when it came from BLE.
@@ -207,6 +231,8 @@ void ble_init(
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
     ble_set_color_order_on_ble_write_t ble_set_color_order_on_ble_write_cb,
     ble_get_color_order_on_ble_read_t ble_get_color_order_on_ble_read_cb,
+    ble_set_day_splash_on_ble_write_t ble_set_day_splash_on_ble_write_cb,
+    ble_get_day_splash_on_ble_read_t ble_get_day_splash_on_ble_read_cb,
     ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
     ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
