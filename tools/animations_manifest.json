@@ -1,14 +1,24 @@
 {
   "animations": [
     {
+      "slug": "ruflag",
+      "name": "Russian flag",
+      "source": "img/ruflag_64x32.gif"
+    },
+    {
       "slug": "nyancat",
       "name": "Nyan Cat",
       "source": "img/nyan_64x32.gif"
     },
     {
-      "slug": "ruflag",
-      "name": "Russian flag",
-      "source": "img/ruflag_64x32.gif"
+      "slug": "pacman",
+      "name": "Pac-Man",
+      "source": "img/pacman_64x32.gif"
+    },
+    {
+      "slug": "rick_and_morty",
+      "name": "Rick & Morty",
+      "source": "img/rick_and_morty_64x32.gif"
     }
   ]
 }

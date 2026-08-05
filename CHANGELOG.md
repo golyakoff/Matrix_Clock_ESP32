@@ -1,3 +1,9 @@
+Release 1.6.0
+
+- [x] Added two more animations for the Animation Splash easter egg — Pac-Man and Rick & Morty — and reordered the set to Russian flag (0), Nyan Cat (1), Pac-Man (2), Rick & Morty (3). Note: the reorder changes what a previously-stored animation index maps to, so a device's selected animation may shift after this update until it is re-picked
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.5.0...v1.6.0
+
 Release 1.5.0
 
 - [x] Reworked the day-boundary "Day Splash" easter egg (v1.4.0) into a configurable "Animation Splash": the chosen animation can now play at the start of the hour at a selectable cadence — once a day (at 00:00, the old behaviour), every 3 hours (00:00, 03:00, ... 21:00), or every hour — and for a selectable duration (10, 20, 40 or 60 seconds) instead of always exactly one minute. Cadence mode (2 bits), duration (2 bits) and animation index (3 bits) are packed into the same DS3231 RTC byte `0Ah`; the BLE characteristic (`MC_ANIMATION_SPLASH_CHAR_UUID`, formerly the Day Splash UUID, same value) carries mode in bits 0..1, duration in bits 2..3, animation index in bits 4..6 and the "play now" preview command in bit 7. Renamed the feature to "Animation Splash" throughout the code
