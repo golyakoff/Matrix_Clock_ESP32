@@ -31,13 +31,15 @@
 //
 //          * 2 highest bits: Reserved for future.
 //
-// 0Ah:     Lowest 1 bit stores whether the "Day Splash" feature is enabled (1) or not (0):
-//          an animated GIF screensaver played over the 00:00 minute at the day boundary
-//          (see RealTimeClock::saveDaySplash()/loadDaySplash()).
+// 0Ah:     Lowest 2 bits store the "Animation Splash" cadence mode (0 = off, 1 = daily,
+//          2 = every 3 hours, 3 = hourly): an animated GIF screensaver played at the start of the
+//          hour (see RealTimeClock::saveAnimationSplash()/loadAnimationSplash()).
+//
+//          The next 2 bits store the playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s).
 //
 //          The next 3 bits store the selected animation index (0..7).
 //
-//          * 4 highest bits: Reserved for future.
+//          * 1 highest bit: Reserved for future.
 //
 // OBh-0Ch: Lowest 11 bits starting from DS3231_REG_ALARM1_SEC are used to store
 //          "on" alarm time as an integer value equals to the 
@@ -193,22 +195,24 @@ class RealTimeClock
         bool loadColorOrder(bool *use_rrbbgg);
 
         /**
-         * @brief Saves the Day Splash setting (enabled flag + selected animation index) into memory.
+         * @brief Saves the Animation Splash setting (cadence mode + duration + animation index) into memory.
          *
-         * @param enabled whether the day-boundary animated screensaver is enabled.
+         * @param mode the cadence mode (0 = off, 1 = daily, 2 = every 3 hours, 3 = hourly).
+         * @param duration the playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s).
          * @param index the selected animation index (0..7).
          * @return true if saving successfully done, otherwise false
          */
-        bool saveDaySplash(bool enabled, uint8_t index);
+        bool saveAnimationSplash(uint8_t mode, uint8_t duration, uint8_t index);
 
         /**
-         * @brief Loads the Day Splash setting (enabled flag + selected animation index) from memory.
+         * @brief Loads the Animation Splash setting (cadence mode + duration + animation index) from memory.
          *
-         * @param enabled the pointer to the memory for storing whether the feature is enabled.
+         * @param mode the pointer to the memory for storing the cadence mode (0..3).
+         * @param duration the pointer to the memory for storing the playback duration (0..3).
          * @param index the pointer to the memory for storing the selected animation index (0..7).
          * @return true if loading successfully done, otherwise false
          */
-        bool loadDaySplash(bool *enabled, uint8_t *index);
+        bool loadAnimationSplash(uint8_t *mode, uint8_t *duration, uint8_t *index);
 
     private:
         /**

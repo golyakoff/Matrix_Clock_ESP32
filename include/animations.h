@@ -8,6 +8,7 @@
 // arrays with external linkage, so including it twice would break the link.
 
 #include "animations/nyancat.h"
+#include "animations/ruflag.h"
 
 typedef struct {
     const char*     name;        // human-readable label (for the app/debug)
@@ -18,10 +19,11 @@ typedef struct {
     const uint16_t* frame_ms;    // per-frame duration in ms, frame_count entries
 } animation_t;
 
-#define ANIMATION_COUNT 1
+#define ANIMATION_COUNT 2
 
 static const animation_t ANIMATIONS[ANIMATION_COUNT] = {
     { "Nyan Cat", NYANCAT_WIDTH, NYANCAT_HEIGHT, NYANCAT_FRAME_COUNT, NYANCAT_FRAMES, NYANCAT_FRAME_MS },
+    { "Russian flag", RUFLAG_WIDTH, RUFLAG_HEIGHT, RUFLAG_FRAME_COUNT, RUFLAG_FRAMES, RUFLAG_FRAME_MS },
 };
 
 // Returns a valid animation for the given index, clamped into range.

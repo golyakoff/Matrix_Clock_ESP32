@@ -207,11 +207,12 @@ void main_rtc_init()
     rtc.loadColorOrder(&use_rrbbgg);
     matrix_set_color_order(use_rrbbgg);
 
-    // Initialize runtime Day Splash setting from RTC
-    bool day_splash_enabled;
-    uint8_t day_splash_index;
-    rtc.loadDaySplash(&day_splash_enabled, &day_splash_index);
-    matrix_set_day_splash(day_splash_enabled, day_splash_index);
+    // Initialize runtime Animation Splash setting from RTC
+    uint8_t animation_splash_mode;
+    uint8_t animation_splash_duration;
+    uint8_t animation_splash_index;
+    rtc.loadAnimationSplash(&animation_splash_mode, &animation_splash_duration, &animation_splash_index);
+    matrix_set_animation_splash(animation_splash_mode, animation_splash_duration, animation_splash_index);
 }
 
 // Hourly brightness schedule init with debug messages
@@ -334,29 +335,29 @@ bool get_matrix_color_order_on_ble_read()
     return matrix_get_color_order();
 }
 
-void set_day_splash_on_ble_write(bool enabled, uint8_t index, bool preview_now)
+void set_animation_splash_on_ble_write(uint8_t mode, uint8_t duration, uint8_t index, bool preview_now)
 {
-    matrix_set_day_splash(enabled, index);
+    matrix_set_animation_splash(mode, duration, index);
 
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-    ESP_LOGD(TAG, "Called set_day_splash_on_ble_write(en=%d, idx=%d, preview=%d)", enabled, index, preview_now);
+    ESP_LOGD(TAG, "Called set_animation_splash_on_ble_write(mode=%d, dur=%d, idx=%d, preview=%d)", mode, duration, index, preview_now);
     #endif
 
-    if (!rtc.saveDaySplash(enabled, index))
-        ESP_LOGE(TAG, "Error: set_day_splash_on_ble_write(...) > rtc.saveDaySplash(...)");
+    if (!rtc.saveAnimationSplash(mode, duration, index))
+        ESP_LOGE(TAG, "Error: set_animation_splash_on_ble_write(...) > rtc.saveAnimationSplash(...)");
 
     // A "play now" preview is transient and time-independent, so it isn't persisted - just fired.
     if (preview_now)
-        matrix_request_day_splash_preview();
+        matrix_request_animation_splash_preview();
 }
 
-void get_day_splash_on_ble_read(bool *enabled, uint8_t *index)
+void get_animation_splash_on_ble_read(uint8_t *mode, uint8_t *duration, uint8_t *index)
 {
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-    ESP_LOGD(TAG, "Called get_day_splash_on_ble_read()");
+    ESP_LOGD(TAG, "Called get_animation_splash_on_ble_read()");
     #endif
 
-    matrix_get_day_splash(enabled, index);
+    matrix_get_animation_splash(mode, duration, index);
 }
 
 void set_matrix_hourly_brightness_on_ble_write(const uint8_t* data, size_t length)
@@ -592,8 +593,8 @@ void main_ble_init()
         &get_matrix_manual_brightness_on_ble_read,
         &set_matrix_color_order_on_ble_write,
         &get_matrix_color_order_on_ble_read,
-        &set_day_splash_on_ble_write,
-        &get_day_splash_on_ble_read,
+        &set_animation_splash_on_ble_write,
+        &get_animation_splash_on_ble_read,
         &set_matrix_hourly_brightness_on_ble_write,
         &get_matrix_hourly_brightness_on_ble_read,
         &set_matrix_alarm_on_ble_write,

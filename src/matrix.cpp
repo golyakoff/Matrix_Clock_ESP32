@@ -39,19 +39,20 @@ static bool _force_update;          // if "true", there will be performed forced
 static bool _ota_mode = false;      // true while showing the OTA progress screen instead of the clock
 static int16_t _ota_percent_last = -1; // last percentage drawn, in tenths of a percent; -1 = not drawn yet
 
-// Day Splash: an animated GIF played over the 00:00 minute at the day boundary instead of the
-// usual Tetris layout (see the state machine near the bottom of this file).
-static bool _day_splash_enabled = false;         // feature on/off (persisted in RTC memory)
-static uint8_t _day_splash_index = 0;            // selected animation index (persisted in RTC memory)
+// Animation Splash: an animated GIF played at the start of the hour instead of the usual Tetris
+// layout, at a configurable cadence and for a configurable duration (see the state machine below).
+static uint8_t _animation_splash_mode = animation_splash_off;  // cadence, 0..3 (persisted in RTC memory)
+static uint8_t _animation_splash_duration = animation_splash_10s; // duration, 0..3 (persisted in RTC memory)
+static uint8_t _animation_splash_index = 0;      // selected animation index (persisted in RTC memory)
 static bool _splash_mode = false;                // true while an animation is playing
-static bool _splash_is_preview = false;          // true if started by the app's "play now" command
 static const animation_t* _splash_anim = nullptr;// animation currently playing
 static uint8_t _splash_frame = 0;                // current frame index
 static unsigned long _splash_frame_due_ms = 0;   // millis() at which to advance to the next frame
-static unsigned long _splash_preview_end_ms = 0; // millis() at which a preview run ends
+static unsigned long _splash_end_ms = 0;         // millis() at which the current run ends
 static volatile bool _splash_preview_requested = false; // set from the BLE task, consumed in the loop
 
-#define SPLASH_PREVIEW_MS (5000U) // how long the app's "play now" preview loops before returning
+// Playback duration in seconds, indexed by animation_splash_duration_t (0..3).
+static const uint16_t _animation_splash_duration_secs[] = { 10, 20, 40, 60 };
 
 #define DISPLAY_REFRESH_NORMAL_US (2000U) // matches the timerAlarmWrite() value matrix_init() sets up
 #define DISPLAY_REFRESH_OTA_US    (4000U) // half the normal refresh rate while OTA is running, to
@@ -80,7 +81,7 @@ void draw_intro(int x, int y);
 void set_matrix_time();
 void check_brightness_tick();
 uint8_t brightness_nibble_to_byte(uint8_t brightness_nibble);
-void enter_splash_mode(const animation_t* anim, bool preview);
+void enter_splash_mode(const animation_t* anim);
 void exit_splash_mode();
 void step_splash();
 void draw_splash_frame();
@@ -252,10 +253,10 @@ void matrix_100hz_loop()
     {
         _splash_preview_requested = false;
         if (_show && !_splash_mode)
-            enter_splash_mode(animation_get(_day_splash_index), true);
+            enter_splash_mode(animation_get(_animation_splash_index));
     }
 
-    // While a Day Splash animation is playing it fully owns the panel; skip the clock logic.
+    // While an Animation Splash is playing it fully owns the panel; skip the clock logic.
     if (_splash_mode)
     {
         step_splash();
@@ -340,19 +341,21 @@ bool matrix_get_color_order()
     return _use_rrbbgg;
 }
 
-void matrix_set_day_splash(bool enabled, uint8_t index)
+void matrix_set_animation_splash(uint8_t mode, uint8_t duration, uint8_t index)
 {
-    _day_splash_enabled = enabled;
-    _day_splash_index = index;
+    _animation_splash_mode = mode;
+    _animation_splash_duration = duration;
+    _animation_splash_index = index;
 }
 
-void matrix_get_day_splash(bool *enabled, uint8_t *index)
+void matrix_get_animation_splash(uint8_t *mode, uint8_t *duration, uint8_t *index)
 {
-    *enabled = _day_splash_enabled;
-    *index = _day_splash_index;
+    *mode = _animation_splash_mode;
+    *duration = _animation_splash_duration;
+    *index = _animation_splash_index;
 }
 
-void matrix_request_day_splash_preview()
+void matrix_request_animation_splash_preview()
 {
     // Just raise the flag; matrix_100hz_loop() (main task) starts the run.
     _splash_preview_requested = true;
@@ -406,13 +409,26 @@ void set_matrix_time()
     mktime(&_dt); // normalize it
     log_tm(TAG, "_dt", &_dt);
 
-    // Day Splash: at the new-day boundary play the selected animation over the whole 00:00 minute
-    // instead of the usual Tetris layout, but only while the display is on (if the night off-alarm
-    // has the panel off at midnight the splash is skipped). step_splash() ends it at 00:01.
-    if (_day_splash_enabled && _show && _dt.tm_hour == 0 && _dt.tm_min == 0 && !_splash_mode)
+    // Animation Splash: at the start of an hour (:00) play the selected animation over the whole
+    // minute instead of the usual Tetris layout, at the configured cadence, but only while the
+    // display is on (if the night off-alarm has the panel off the splash is skipped).
+    // step_splash() ends it at :01.
+    if (_show && _dt.tm_min == 0 && !_splash_mode)
     {
-        enter_splash_mode(animation_get(_day_splash_index), false);
-        return;
+        bool trigger = false;
+        switch (_animation_splash_mode)
+        {
+            case animation_splash_daily:    trigger = (_dt.tm_hour == 0); break;
+            case animation_splash_every_3h: trigger = (_dt.tm_hour % 3 == 0); break;
+            case animation_splash_hourly:   trigger = true; break;
+            default:                        trigger = false; break; // animation_splash_off
+        }
+
+        if (trigger)
+        {
+            enter_splash_mode(animation_get(_animation_splash_index));
+            return;
+        }
     }
 
     strftime(_matrix_time_buffer, sizeof(_matrix_time_buffer), "%H:%M", &_dt);
@@ -422,15 +438,15 @@ void set_matrix_time()
     _finished_animating = false;
 }
 
-void enter_splash_mode(const animation_t* anim, bool preview)
+void enter_splash_mode(const animation_t* anim)
 {
     if (anim == nullptr || anim->frame_count == 0 || anim->frames == nullptr)
         return;
 
     _splash_anim = anim;
     _splash_frame = 0;
-    _splash_is_preview = preview;
-    _splash_preview_end_ms = millis() + SPLASH_PREVIEW_MS;
+    _splash_end_ms = millis() +
+        (unsigned long)_animation_splash_duration_secs[_animation_splash_duration & 0x03] * 1000UL;
     _splash_mode = true;
 
     // Stop stepping the Tetris animation so it can't draw over the frames; the display refresh
@@ -448,8 +464,8 @@ void exit_splash_mode()
     _splash_mode = false;
     _splash_anim = nullptr;
 
-    // Resume the Tetris animation and force a clean redraw of the current time (which will be
-    // 00:01 for the day-boundary run, or whatever the clock reads after a preview).
+    // Resume the Tetris animation and force a clean redraw of the current time (whatever the clock
+    // reads once the run's duration has elapsed).
     if (animationTimer)
         timerAlarmEnable(animationTimer);
 
@@ -462,11 +478,8 @@ void step_splash()
 {
     unsigned long now = millis();
 
-    // Exit conditions: display turned off mid-run; preview elapsed; or, for the day-boundary run,
-    // the clock has moved past the 00:00 minute (i.e. it is time to show 00:01 with Tetris).
-    bool preview_done = _splash_is_preview && (long)(now - _splash_preview_end_ms) >= 0;
-    bool minute_passed = !_splash_is_preview && (_dt.tm_hour != 0 || _dt.tm_min != 0);
-    if (!_show || preview_done || minute_passed)
+    // Exit conditions: the display was turned off mid-run, or the configured duration has elapsed.
+    if (!_show || (long)(now - _splash_end_ms) >= 0)
     {
         exit_splash_mode();
         return;

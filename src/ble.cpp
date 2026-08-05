@@ -14,11 +14,13 @@
 
 #define MC_HOURLY_BRIGHTNESS_LEN       (24U)
 
-// Day Splash single-byte layout (see MC_DAY_SPLASH_CHAR_UUID in ble.h)
-#define MC_DAY_SPLASH_ENABLED_MASK     0b00000001
-#define MC_DAY_SPLASH_PREVIEW_MASK     0b00001000
-#define MC_DAY_SPLASH_INDEX_MASK       0b01110000
-#define MC_DAY_SPLASH_INDEX_SHIFT      (4U)
+// Animation Splash single-byte layout (see MC_ANIMATION_SPLASH_CHAR_UUID in ble.h)
+#define MC_ANIM_SPLASH_MODE_MASK       0b00000011
+#define MC_ANIM_SPLASH_DURATION_MASK   0b00001100
+#define MC_ANIM_SPLASH_DURATION_SHIFT  (2U)
+#define MC_ANIM_SPLASH_INDEX_MASK      0b01110000
+#define MC_ANIM_SPLASH_INDEX_SHIFT     (4U)
+#define MC_ANIM_SPLASH_PREVIEW_MASK    0b10000000
 
 static const char* TAG = "BLE";
 
@@ -36,7 +38,7 @@ static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteri
 static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcco_char(MC_COLOR_ORDER_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcds_char(MC_DAY_SPLASH_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+static BLECharacteristic _mcas_char(MC_ANIMATION_SPLASH_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mchbt_char(MC_HOURLY_BRIGHTNESS_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
 static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
@@ -71,8 +73,8 @@ static ble_set_manual_bright_val_on_ble_write_t _set_manual_bright_val_on_ble_wr
 static ble_get_color_order_on_ble_read_t _get_color_order_on_ble_read = nullptr;
 static ble_set_color_order_on_ble_write_t _set_color_order_on_ble_write = nullptr;
 
-static ble_get_day_splash_on_ble_read_t _get_day_splash_on_ble_read = nullptr;
-static ble_set_day_splash_on_ble_write_t _set_day_splash_on_ble_write = nullptr;
+static ble_get_animation_splash_on_ble_read_t _get_animation_splash_on_ble_read = nullptr;
+static ble_set_animation_splash_on_ble_write_t _set_animation_splash_on_ble_write = nullptr;
 
 static ble_get_hourly_brightness_on_ble_read_t _get_hourly_brightness_on_ble_read = nullptr;
 static ble_set_hourly_brightness_on_ble_write_t _set_hourly_brightness_on_ble_write = nullptr;
@@ -253,24 +255,25 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcds_char.getUUID()) && param->write.len == 1)
+        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()) && param->write.len == 1)
         {
-            if (_set_day_splash_on_ble_write == nullptr)
+            if (_set_animation_splash_on_ble_write == nullptr)
             {
-                ESP_LOGE(TAG, "Error: callback _set_day_splash_on_ble_write is nullptr.");
+                ESP_LOGE(TAG, "Error: callback _set_animation_splash_on_ble_write is nullptr.");
                 return;
             }
 
             uint8_t value = param->write.value[0];
-            bool enabled = (value & MC_DAY_SPLASH_ENABLED_MASK) > 0;
-            bool preview_now = (value & MC_DAY_SPLASH_PREVIEW_MASK) > 0;
-            uint8_t index = (value & MC_DAY_SPLASH_INDEX_MASK) >> MC_DAY_SPLASH_INDEX_SHIFT;
+            uint8_t mode = value & MC_ANIM_SPLASH_MODE_MASK;
+            uint8_t duration = (value & MC_ANIM_SPLASH_DURATION_MASK) >> MC_ANIM_SPLASH_DURATION_SHIFT;
+            uint8_t index = (value & MC_ANIM_SPLASH_INDEX_MASK) >> MC_ANIM_SPLASH_INDEX_SHIFT;
+            bool preview_now = (value & MC_ANIM_SPLASH_PREVIEW_MASK) > 0;
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-            ESP_LOGD(TAG, "Calling callback _set_day_splash_on_ble_write(en=%d, idx=%d, preview=%d)...", enabled, index, preview_now);
+            ESP_LOGD(TAG, "Calling callback _set_animation_splash_on_ble_write(mode=%d, dur=%d, idx=%d, preview=%d)...", mode, duration, index, preview_now);
             #endif
 
-            _set_day_splash_on_ble_write(enabled, index, preview_now);
+            _set_animation_splash_on_ble_write(mode, duration, index, preview_now);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -445,14 +448,16 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcds_char.getUUID()))
+        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()))
         {
-            bool enabled = false;
+            uint8_t mode = 0;
+            uint8_t duration = 0;
             uint8_t index = 0;
-            _get_day_splash_on_ble_read(&enabled, &index);
+            _get_animation_splash_on_ble_read(&mode, &duration, &index);
             uint8_t data_val[1] = { static_cast<uint8_t>(
-                (enabled ? MC_DAY_SPLASH_ENABLED_MASK : 0) |
-                ((index << MC_DAY_SPLASH_INDEX_SHIFT) & MC_DAY_SPLASH_INDEX_MASK)) };
+                (mode & MC_ANIM_SPLASH_MODE_MASK) |
+                ((duration << MC_ANIM_SPLASH_DURATION_SHIFT) & MC_ANIM_SPLASH_DURATION_MASK) |
+                ((index << MC_ANIM_SPLASH_INDEX_SHIFT) & MC_ANIM_SPLASH_INDEX_MASK)) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
             return;
         }
@@ -511,8 +516,8 @@ void ble_init(
     ble_get_manual_bright_val_on_ble_read_t ble_get_manual_bright_val_on_ble_read_cb,
     ble_set_color_order_on_ble_write_t ble_set_color_order_on_ble_write_cb,
     ble_get_color_order_on_ble_read_t ble_get_color_order_on_ble_read_cb,
-    ble_set_day_splash_on_ble_write_t ble_set_day_splash_on_ble_write_cb,
-    ble_get_day_splash_on_ble_read_t ble_get_day_splash_on_ble_read_cb,
+    ble_set_animation_splash_on_ble_write_t ble_set_animation_splash_on_ble_write_cb,
+    ble_get_animation_splash_on_ble_read_t ble_get_animation_splash_on_ble_read_cb,
     ble_set_hourly_brightness_on_ble_write_t ble_set_hourly_brightness_on_ble_write_cb,
     ble_get_hourly_brightness_on_ble_read_t ble_get_hourly_brightness_on_ble_read_cb,
     ble_set_alarm_on_ble_write_t ble_set_alarm_on_ble_write_cb,
@@ -539,8 +544,8 @@ void ble_init(
     _set_color_order_on_ble_write = ble_set_color_order_on_ble_write_cb;
     _get_color_order_on_ble_read = ble_get_color_order_on_ble_read_cb;
 
-    _set_day_splash_on_ble_write = ble_set_day_splash_on_ble_write_cb;
-    _get_day_splash_on_ble_read = ble_get_day_splash_on_ble_read_cb;
+    _set_animation_splash_on_ble_write = ble_set_animation_splash_on_ble_write_cb;
+    _get_animation_splash_on_ble_read = ble_get_animation_splash_on_ble_read_cb;
 
     _set_hourly_brightness_on_ble_write = ble_set_hourly_brightness_on_ble_write_cb;
     _get_hourly_brightness_on_ble_read = ble_get_hourly_brightness_on_ble_read_cb;
@@ -625,10 +630,10 @@ void ble_init(
     _mcco_char.setCallbacks(&_myCharacteristicCallbacks);
     ESP_LOGI(TAG, "OK: %s", _mcco_char.toString().c_str());
 
-    ESP_LOGI(TAG, "Add MatrixClock Day Splash characteristic...");
-    bleService->addCharacteristic(&_mcds_char);
-    _mcds_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcds_char.toString().c_str());
+    ESP_LOGI(TAG, "Add MatrixClock Animation Splash characteristic...");
+    bleService->addCharacteristic(&_mcas_char);
+    _mcas_char.setCallbacks(&_myCharacteristicCallbacks);
+    ESP_LOGI(TAG, "OK: %s", _mcas_char.toString().c_str());
 
     ESP_LOGI(TAG, "Add MatrixClock Hourly Brightness Schedule characteristic...");
     bleService->addCharacteristic(&_mchbt_char);

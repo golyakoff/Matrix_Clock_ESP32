@@ -16,9 +16,12 @@
 #define RTC_MEMORY_COLOR_ORDER_MASK             0b00100000
 #define RTC_MEMORY_SHOW_MASK                    0b00000001
 
-// Day Splash setting, stored in the otherwise-unused DS3231_REG_ALARM1_DD (0Ah) register.
-#define RTC_MEMORY_DAY_SPLASH_EN_MASK           0b00000001
-#define RTC_MEMORY_DAY_SPLASH_INDEX_MASK        0b00001110  // bits 1..3: animation index 0..7
+// Animation Splash setting, stored in the otherwise-unused DS3231_REG_ALARM1_DD (0Ah) register.
+#define RTC_MEMORY_ANIM_SPLASH_MODE_MASK        0b00000011  // bits 0..1: cadence mode 0..3
+#define RTC_MEMORY_ANIM_SPLASH_DURATION_MASK    0b00001100  // bits 2..3: playback duration 0..3
+#define RTC_MEMORY_ANIM_SPLASH_DURATION_SHIFT   (2U)
+#define RTC_MEMORY_ANIM_SPLASH_INDEX_MASK       0b01110000  // bits 4..6: animation index 0..7
+#define RTC_MEMORY_ANIM_SPLASH_INDEX_SHIFT      (4U)
 
 static const char* TAG = "RTC";
 
@@ -175,28 +178,32 @@ bool RealTimeClock::loadColorOrder(bool *use_rrbbgg)
     return true;
 }
 
-bool RealTimeClock::saveDaySplash(bool enabled, uint8_t index)
+bool RealTimeClock::saveAnimationSplash(uint8_t mode, uint8_t duration, uint8_t index)
 {
-    // Read-modify-write to keep the 4 highest bits of this register free for future use.
+    // Read-modify-write to keep the highest bit of this register free for future use.
     uint8_t buffer;
     if (!_rtc.readBuffer(DS3231_REG_ALARM1_DD, &buffer, sizeof(buffer)))
         return false;
 
-    buffer = (buffer & ~(RTC_MEMORY_DAY_SPLASH_EN_MASK | RTC_MEMORY_DAY_SPLASH_INDEX_MASK)) |
-        (enabled ? RTC_MEMORY_DAY_SPLASH_EN_MASK : 0) |
-        ((index << 1) & RTC_MEMORY_DAY_SPLASH_INDEX_MASK);
+    buffer = (buffer & ~(RTC_MEMORY_ANIM_SPLASH_MODE_MASK |
+                         RTC_MEMORY_ANIM_SPLASH_DURATION_MASK |
+                         RTC_MEMORY_ANIM_SPLASH_INDEX_MASK)) |
+        (mode & RTC_MEMORY_ANIM_SPLASH_MODE_MASK) |
+        ((duration << RTC_MEMORY_ANIM_SPLASH_DURATION_SHIFT) & RTC_MEMORY_ANIM_SPLASH_DURATION_MASK) |
+        ((index << RTC_MEMORY_ANIM_SPLASH_INDEX_SHIFT) & RTC_MEMORY_ANIM_SPLASH_INDEX_MASK);
 
     return _rtc.writeBuffer(DS3231_REG_ALARM1_DD, &buffer, sizeof(buffer));
 }
 
-bool RealTimeClock::loadDaySplash(bool *enabled, uint8_t *index)
+bool RealTimeClock::loadAnimationSplash(uint8_t *mode, uint8_t *duration, uint8_t *index)
 {
     uint8_t buffer;
     if (!_rtc.readBuffer(DS3231_REG_ALARM1_DD, &buffer, sizeof(buffer)))
         return false;
 
-    *enabled = (buffer & RTC_MEMORY_DAY_SPLASH_EN_MASK) > 0;
-    *index = (buffer & RTC_MEMORY_DAY_SPLASH_INDEX_MASK) >> 1;
+    *mode = buffer & RTC_MEMORY_ANIM_SPLASH_MODE_MASK;
+    *duration = (buffer & RTC_MEMORY_ANIM_SPLASH_DURATION_MASK) >> RTC_MEMORY_ANIM_SPLASH_DURATION_SHIFT;
+    *index = (buffer & RTC_MEMORY_ANIM_SPLASH_INDEX_MASK) >> RTC_MEMORY_ANIM_SPLASH_INDEX_SHIFT;
 
     return true;
 }

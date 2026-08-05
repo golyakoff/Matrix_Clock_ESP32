@@ -183,30 +183,53 @@ void matrix_set_color_order(bool use_rrbbgg);
 bool matrix_get_color_order();
 
 /**
- * @brief Configures the "Day Splash" feature: an animated screensaver played over the 00:00 minute
- *        at the day boundary instead of the usual Tetris layout.
- *        Used when update comes from BLE, or once at boot with the value loaded from RTC memory.
- *
- * @param enabled true to play the animation at the day boundary, false to disable it.
- * @param index the selected animation index (0..7); out-of-range values fall back to animation 0.
+ * @brief Animation Splash mode: how often the animated screensaver replaces the clock over the
+ *        :00 minute at the start of the hour (instead of the usual Tetris layout).
  */
-void matrix_set_day_splash(bool enabled, uint8_t index);
+typedef enum {
+    animation_splash_off = 0,       // never
+    animation_splash_daily = 1,     // once per day, at 00:00
+    animation_splash_every_3h = 2,  // every 3 hours (00:00, 03:00, 06:00, ... 21:00)
+    animation_splash_hourly = 3     // every hour, at HH:00
+} animation_splash_mode_t;
 
 /**
- * @brief Gets the current "Day Splash" configuration.
+ * @brief Animation Splash playback duration: how long the animation loops before the clock returns.
+ */
+typedef enum {
+    animation_splash_10s = 0,  // 10 seconds
+    animation_splash_20s = 1,  // 20 seconds
+    animation_splash_40s = 2,  // 40 seconds
+    animation_splash_60s = 3   // 60 seconds (the whole :00 minute)
+} animation_splash_duration_t;
+
+/**
+ * @brief Configures the "Animation Splash" feature: an animated screensaver played at the start of
+ *        the hour instead of the usual Tetris layout, at the selected cadence and for the selected
+ *        duration. Used when update comes from BLE, or once at boot with the value loaded from RTC.
+ *
+ * @param mode how often to play the animation (see animation_splash_mode_t, 0..3).
+ * @param duration how long each run lasts (see animation_splash_duration_t, 0..3).
+ * @param index the selected animation index (0..7); out-of-range values fall back to animation 0.
+ */
+void matrix_set_animation_splash(uint8_t mode, uint8_t duration, uint8_t index);
+
+/**
+ * @brief Gets the current "Animation Splash" configuration.
  *        Used when the actual value is requested by BLE.
  *
- * @param enabled the pointer to the memory for storing whether the feature is enabled.
+ * @param mode the pointer to the memory for storing the cadence mode (0..3).
+ * @param duration the pointer to the memory for storing the playback duration (0..3).
  * @param index the pointer to the memory for storing the selected animation index (0..7).
  */
-void matrix_get_day_splash(bool *enabled, uint8_t *index);
+void matrix_get_animation_splash(uint8_t *mode, uint8_t *duration, uint8_t *index);
 
 /**
  * @brief Requests an immediate one-off "play now" preview of the currently selected animation,
- *        independent of the time of day (used by the app to test the selected animation).
+ *        independent of the time of day and the cadence mode (used by the app to test the animation).
  *        The request is served from matrix_100hz_loop() and ignored while the display is off,
  *        during OTA, or while an animation is already playing.
  */
-void matrix_request_day_splash_preview();
+void matrix_request_animation_splash_preview();
 
 #endif // __MATRIX_H__
