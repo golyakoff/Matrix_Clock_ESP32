@@ -32,6 +32,21 @@ static ota_flash_write_end_cb_t _on_flash_write_end_cb = nullptr;
 #define OTA_WRITER_TASK_STACK    (8192U)
 #define OTA_WRITER_TASK_PRIORITY (1U)
 
+// Yield the writer task briefly after every flash write so the BLE core (core 0) gets a flash-free
+// window to service the connection. Each Update.write() flushes to flash via spi_flash, which stalls
+// the *other* CPU for the duration; with the fast 512-byte/high-priority BLE stream those stalls come
+// back-to-back and the clock stops answering connection events -> the link drops with a supervision
+// timeout (GATT status 8), which aborts the update and reboots. Spacing the writes out lets BLE
+// breathe (an on-device measurement reached 30% vs 15% before, with no disconnect). This is what the
+// verbose debug build was doing incidentally via its per-chunk logging, which is why only the fast
+// release build lost the link. The write-with-response stream self-paces to the writer's rate, so
+// this just throttles throughput to ~1 chunk per (write + this delay) - still far faster than the
+// old 20-byte-MTU crawl. Tune if the transfer still drops (raise) or is too slow (lower).
+// NOTE: this delay MUST stay in the writer loop, AFTER ota_write_now() returns - i.e. once the flash
+// op is done and the scheduler is running again. A blocking call (vTaskDelay/Serial) DURING a flash
+// op asserts "xQueueSemaphoreTake ... scheduler suspended".
+#define OTA_WRITE_YIELD_MS       (10U)
+
 typedef struct {
     uint8_t data[OTA_WRITE_CHUNK_MAX];
     size_t length;
@@ -209,6 +224,10 @@ static void ota_writer_task(void* pvParameters) {
             _writer_busy = true;
             ota_write_now(item.data, item.length);
             _writer_busy = false;
+
+            // Safe here: ota_write_now() has returned, so the flash op is finished and the scheduler
+            // is running again (see OTA_WRITE_YIELD_MS). Gives the BLE core a flash-free window.
+            delay(OTA_WRITE_YIELD_MS);
         }
 
         if (_abort_requested) {

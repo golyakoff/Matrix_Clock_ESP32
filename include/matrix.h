@@ -71,6 +71,15 @@ void matrix_resume_timers();
 void matrix_enter_ota_mode();
 
 /**
+ * @brief Blanks the panel for the OTA data transfer: stops the display refresh timer (the panel
+ *        goes dark) so the delicate firmware stream has the whole CPU/RF to itself, instead of
+ *        keeping the "Updating firmware" screen lit. Call once the transfer proper begins. The
+ *        panel is brought back only by matrix_show_ota_failed(); a successful update reboots.
+ *        Ignored if matrix_enter_ota_mode() wasn't called first.
+ */
+void matrix_ota_freeze_display();
+
+/**
  * @brief Updates the percentage shown on the OTA screen, with one decimal digit (e.g. "37.5%").
  *        Only redraws when the displayed value actually changes, so this is safe to call on
  *        every received BLE chunk.

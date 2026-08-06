@@ -493,7 +493,11 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
 
                 // Disable all ISRs but BLE
                 main_ota_init();
-                
+
+                // Ask the phone for a long supervision timeout so the fast firmware stream's
+                // flash-write stalls don't drop the link mid-transfer (GATT status 8).
+                ble_request_ota_conn_params();
+
                 // Start OTA update
                 if (ota_begin(
                     firmware_size,
@@ -503,6 +507,13 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
                     matrix_pause_timers,
                     matrix_resume_timers)
                 ) {
+                    // Blank the panel for the transfer so the display refresh ISR stops competing
+                    // for CPU/RF while the stream runs (the panel comes back only on failure). A
+                    // long supervision timeout alone (ble_request_ota_conn_params()) was not enough
+                    // to keep the link up under the fast release stream - the refresh ISR still
+                    // starved BLE enough to drop it partway; blanking the panel is what carries it
+                    // to 100%. Verified on-device: timeout-only dropped ~18%, both together = 100%.
+                    matrix_ota_freeze_display();
                     ota_emit_status("OTA started successfully", false);
                 } else {
                     ota_emit_status("OTA start failed", true);

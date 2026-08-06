@@ -1,3 +1,9 @@
+Release 1.6.1
+
+- [x] Fixed BLE OTA firmware updates dropping partway through (typically ~15-20%) and rebooting the clock on the release build. Under the fast post-MTU firmware stream the device was too busy writing flash to service BLE connection events, so the link died with a supervision timeout (GATT status 8), which aborted the update. Two device-side changes fix it: (1) on OTA start the clock now asks the phone for OTA-friendly connection parameters — chiefly a long 6-second supervision timeout — so brief flash-write stalls can no longer reach the drop threshold (`ble_request_ota_conn_params()`); and (2) the LED panel is now blanked (goes dark) for the duration of the data transfer instead of keeping the "Updating firmware" progress screen lit, so the display refresh interrupt stops competing with the BLE stack for CPU/RF time (`matrix_ota_freeze_display()`). On-device testing showed the connection-parameter change alone was not enough — the transfer still dropped ~18% in — so both are needed; together the update completes 100%. The percentage is no longer shown on the panel during the transfer (the panel is dark), but progress is still shown in the companion app; the panel comes back only to display the error screen on a failed update
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.6.0...v1.6.1
+
 Release 1.6.0
 
 - [x] Added two more animations for the Animation Splash easter egg — Pac-Man and Rick & Morty — and reordered the set to Russian flag (0), Nyan Cat (1), Pac-Man (2), Rick & Morty (3). Note: the reorder changes what a previously-stored animation index maps to, so a device's selected animation may shift after this update until it is re-picked

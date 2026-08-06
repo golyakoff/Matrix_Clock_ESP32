@@ -51,6 +51,12 @@ static BLECharacteristic _mcotad_char(MC_OTA_DATA_CHAR_UUID, BLECharacteristic::
 // Variables
 static bool _device_connected = false;
 
+// Kept so an OTA update can ask the central for connection parameters friendlier to the fast
+// firmware stream (a long supervision timeout) - see ble_request_ota_conn_params().
+static BLEServer* _pServer = nullptr;
+static esp_bd_addr_t _peer_bda;
+static bool _have_peer_bda = false;
+
 static struct tm _last_update_dt;
 
 static char _mcts_char_buffer[20];       // string time buffer for conversion
@@ -102,10 +108,19 @@ class MyServerCallbacks: public BLEServerCallbacks
         // Translate the firmware version
         ble_update_firmware_version();
     }
-    
+
+    // The stack calls this overload alongside the one above, with the connect event params. Capture
+    // the peer address so ble_request_ota_conn_params() can target it when an OTA update starts.
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param)
+    {
+        memcpy(_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+        _have_peer_bda = true;
+    }
+
     void onDisconnect(BLEServer* pServer)
     {
         _device_connected = false;
+        _have_peer_bda = false;
         ESP_LOGI(TAG, "BLE device disconnected");
 
         start_advertising(pServer);
@@ -576,6 +591,7 @@ void ble_init(
     // Create the BLE Server
     ESP_LOGI(TAG, "Create BLE server...");
     BLEServer *pServer = BLEDevice::createServer();
+    _pServer = pServer;
     pServer->setCallbacks(&_myServerCallbacks);
     ESP_LOGI(TAG, "OK (BLE server created)");
 
@@ -705,6 +721,25 @@ void ble_update_firmware_version()
     std::string version = _get_fw_ver_ble_read();
     _mcfv_char.setValue(version);
     _mcfv_char.notify();
+}
+
+void ble_request_ota_conn_params()
+{
+    if (!_pServer || !_device_connected || !_have_peer_bda) {
+        ESP_LOGW(TAG, "ble_request_ota_conn_params: no active connection, skipping");
+        return;
+    }
+
+    // The OTA firmware stream keeps the CPU busy writing flash, which stalls the radio for tens of
+    // milliseconds at a time (a 4 KB sector erase). With a short supervision timeout the central
+    // tears the link down mid-transfer (the clock stops answering connection events -> GATT status
+    // 8), which aborts the update and reboots the clock. Ask the central for a connection tuned for
+    // the transfer: a short-ish interval (frequent events, so the radio re-syncs quickly in the gaps
+    // between flash writes) plus a long 6 s supervision timeout, so those flash-write stalls can't
+    // reach the drop threshold. Interval is in 1.25 ms units, timeout in 10 ms units:
+    //   min 15 ms (12), max 30 ms (24), latency 0, supervision timeout 6000 ms (600).
+    _pServer->updateConnParams(_peer_bda, 12, 24, 0, 600);
+    ESP_LOGI(TAG, "Requested OTA connection params (15-30 ms interval, 6 s supervision timeout)");
 }
 
 void ble_update_matrix_show(const bool show)

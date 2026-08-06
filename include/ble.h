@@ -272,5 +272,13 @@ void ble_update_matrix_show(const bool show);
  */
 void ble_update_firmware_version();
 
+/**
+ * @brief Asks the connected central for OTA-friendly connection parameters - chiefly a long (6 s)
+ *        supervision timeout - so the fast firmware stream's flash-write stalls don't cause the
+ *        link to drop mid-update (GATT status 8). Call once when an OTA update starts.
+ *        No-op if no device is currently connected.
+ */
+void ble_request_ota_conn_params();
+
 #endif // __BLE_H__
 

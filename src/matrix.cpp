@@ -38,6 +38,7 @@ static bool _force_update;          // if "true", there will be performed forced
 
 static bool _ota_mode = false;      // true while showing the OTA progress screen instead of the clock
 static int16_t _ota_percent_last = -1; // last percentage drawn, in tenths of a percent; -1 = not drawn yet
+static bool _ota_display_frozen = false; // true while the panel is blanked for the OTA data transfer
 
 // Animation Splash: an animated GIF played at the start of the hour instead of the usual Tetris
 // layout, at a configurable cadence and for a configurable duration (see the state machine below).
@@ -155,7 +156,10 @@ void matrix_resume_timers()
     if (animationTimer && !_ota_mode && !_splash_mode)
         timerAlarmEnable(animationTimer);
 
-    if (timer)
+    // Keep the display refresh timer off too once the panel has been deliberately blanked for the
+    // OTA data transfer (matrix_ota_freeze_display()) - the per-chunk pause/resume around each flash
+    // write must not silently bring the refresh ISR back and start eating CPU/RF headroom again.
+    if (timer && !_ota_display_frozen)
         timerAlarmEnable(timer);
 }
 
@@ -193,9 +197,32 @@ void matrix_enter_ota_mode()
     matrix_set_ota_progress(5.0f);
 }
 
+void matrix_ota_freeze_display()
+{
+    if (!_ota_mode || _ota_display_frozen)
+        return;
+
+    ESP_LOGI(TAG, "Blanking panel for the OTA data transfer");
+
+    // Free the CPU/RF entirely for the firmware stream: stop refreshing the panel (it goes dark)
+    // rather than keeping the "Updating firmware" screen lit for the whole transfer. The refresh ISR
+    // is the one thing still running continuously during OTA, and the fast stream is delicate enough
+    // that link drops were happening under load (see ota.cpp); taking the display fully out of the
+    // picture removes it as a variable. Clear the buffer and let a couple of refresh cycles shift the
+    // blank frame onto the panel so it latches all-black, then stop the timer. The panel comes back
+    // only to show the failure screen (matrix_show_ota_failed()); a success reboots straight away.
+    display.clearDisplay();
+    delay(20); // a few DISPLAY_REFRESH_OTA_US cycles to push the blank frame out before freezing
+    if (timer)
+        timerAlarmDisable(timer);
+    _ota_display_frozen = true;
+}
+
 void matrix_set_ota_progress(float percent)
 {
-    if (!_ota_mode)
+    // Nothing is drawn while the panel is blanked for the transfer (matrix_ota_freeze_display()) -
+    // skip the buffer redraw entirely (it runs on the writer task, once per chunk).
+    if (!_ota_mode || _ota_display_frozen)
         return;
 
     int16_t tenths = (int16_t)(percent * 10.0f + 0.5f);
@@ -218,6 +245,14 @@ void matrix_show_ota_failed()
 {
     if (!_ota_mode)
         return;
+
+    // The panel was blanked for the transfer (matrix_ota_freeze_display()); bring the refresh timer
+    // back so the error message below is actually visible before the 10s auto-reboot.
+    if (_ota_display_frozen) {
+        _ota_display_frozen = false;
+        if (timer)
+            timerAlarmEnable(timer);
+    }
 
     display.clearDisplay();
     display.setCursor(18, 2);
