@@ -241,4 +241,11 @@ void matrix_get_animation_splash(uint8_t *mode, uint8_t *duration, uint8_t *inde
  */
 void matrix_request_animation_splash_preview();
 
+/**
+ * @brief Returns how many Animation Splash animations this build ships (the size of the generated
+ *        registry, ANIMATION_COUNT). The 16MB build may ship more than the 4MB build; the app reads
+ *        this over BLE to show exactly the animations the connected clock actually has.
+ */
+uint8_t matrix_get_animation_count();
+
 #endif // __MATRIX_H__

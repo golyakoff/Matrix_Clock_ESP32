@@ -44,6 +44,8 @@ static BLECharacteristic _mchbt_char(MC_HOURLY_BRIGHTNESS_CHAR_UUID, BLECharacte
 static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
+static BLECharacteristic _mcfs_char(MC_FLASH_SIZE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
+static BLECharacteristic _mcac_char(MC_ANIMATION_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
 static BLECharacteristic _mcfv_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
 static BLECharacteristic _mcotac_char(MC_OTA_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
 static BLECharacteristic _mcotad_char(MC_OTA_DATA_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE /*| BLECharacteristic::PROPERTY_WRITE_NR*/);
@@ -597,7 +599,7 @@ void ble_init(
 
     ESP_LOGI(TAG, "Create primary service...");
     // GATT handle budget: 1 for the service declaration + 2 per characteristic (declaration and value)
-    // + 1 per descriptor. With 15 characteristics and 4 BLE2902 descriptors that is 1 + 30 + 4 = 35.
+    // + 1 per descriptor. With 17 characteristics and 4 BLE2902 descriptors that is 1 + 34 + 4 = 39.
     // Keep spare handles here: once the budget is exhausted the stack silently stops handing out
     // handles, and the characteristics/descriptors at the end of the table stop working.
     BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 44U, 0U);
@@ -666,6 +668,22 @@ void ble_init(
     _mctao_char.setCallbacks(&_myCharacteristicCallbacks);
     ESP_LOGI(TAG, "OK: %s", _mctao_char.toString().c_str());
 
+    ESP_LOGI(TAG, "Add MatrixClock Flash Size characteristic...");
+    bleService->addCharacteristic(&_mcfs_char);
+    // Physical flash chip size in whole MB, read from the chip's JEDEC id at boot (constant for the
+    // power-on session), so the value is set once here rather than via an onRead callback.
+    uint8_t flash_size_mb = (uint8_t)(ESP.getFlashChipSize() >> 20);
+    _mcfs_char.setValue(&flash_size_mb, sizeof(flash_size_mb));
+    ESP_LOGI(TAG, "OK: %s (flash %u MB)", _mcfs_char.toString().c_str(), flash_size_mb);
+
+    ESP_LOGI(TAG, "Add MatrixClock Animation Count characteristic...");
+    bleService->addCharacteristic(&_mcac_char);
+    // Value comes from the matrix animation registry, which ble.cpp can't include; main.cpp pushes
+    // it in via ble_set_animation_count() at boot. Seed with 0 until then.
+    uint8_t animation_count_seed = 0;
+    _mcac_char.setValue(&animation_count_seed, sizeof(animation_count_seed));
+    ESP_LOGI(TAG, "OK: %s", _mcac_char.toString().c_str());
+
     ESP_LOGI(TAG, "Add MatrixClock Firmware Version characteristic...");
     bleService->addCharacteristic(&_mcfv_char);
     _mcfv_char.addDescriptor(new BLE2902());
@@ -721,6 +739,12 @@ void ble_update_firmware_version()
     std::string version = _get_fw_ver_ble_read();
     _mcfv_char.setValue(version);
     _mcfv_char.notify();
+}
+
+void ble_set_animation_count(uint8_t count)
+{
+    _mcac_char.setValue(&count, sizeof(count));
+    ESP_LOGI(TAG, "Animation count characteristic set to %u", count);
 }
 
 void ble_request_ota_conn_params()

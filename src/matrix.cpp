@@ -396,6 +396,14 @@ void matrix_request_animation_splash_preview()
     _splash_preview_requested = true;
 }
 
+uint8_t matrix_get_animation_count()
+{
+    // ANIMATION_COUNT comes from the generated registry (animations.h), which is gated per build
+    // (the 16MB build may ship more animations than the 4MB one), so this reflects this firmware's
+    // actual set.
+    return (uint8_t)ANIMATION_COUNT;
+}
+
 #pragma endregion // Public methods definition
 
 #pragma region Private methods definition

@@ -60,6 +60,17 @@
 // Control point to setup aging offset value (8-bit signed integer)
 #define MC_AGING_OFFSET_CHAR_UUID           "F89E201D-434F-4675-B60E-2CF682200C50" // M Read, Write
 
+// Physical flash chip size in whole megabytes (1 byte, e.g. 4 or 16). Read from the flash chip's
+// JEDEC id at boot (ESP.getFlashChipSize()), so it reflects the hardware regardless of which build
+// is flashed. The companion app shows it in the System card and uses it to pick the matching
+// release binary (4mb vs 16mb) for OTA updates.
+#define MC_FLASH_SIZE_CHAR_UUID             "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F5" // M Read
+
+// Number of Animation Splash animations this firmware build ships (1 byte). The 16MB build may
+// ship more than the 4MB build; the app reads this to show exactly the animations the connected
+// clock actually has (rather than assuming a fixed set). Set once at boot via ble_set_animation_count().
+#define MC_ANIMATION_COUNT_CHAR_UUID        "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F6" // M Read
+
 // Firmware update characteristics
 #define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
 #define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1" // M Write
@@ -271,6 +282,16 @@ void ble_update_matrix_show(const bool show);
  *        It is used to push notification to the connected BLE device about the firmware version.
  */
 void ble_update_firmware_version();
+
+/**
+ * @brief Sets the value of the animation-count characteristic (MC_ANIMATION_COUNT_CHAR_UUID) to the
+ *        number of Animation Splash animations this build ships. Call once at boot after ble_init().
+ *        The source is matrix_get_animation_count(); ble.cpp can't include the matrix animation
+ *        registry itself, so main.cpp pushes the value in.
+ *
+ * @param count number of animations (0..8).
+ */
+void ble_set_animation_count(uint8_t count);
 
 /**
  * @brief Asks the connected central for OTA-friendly connection parameters - chiefly a long (6 s)

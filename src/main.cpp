@@ -88,6 +88,10 @@ void setup()
 {
     Serial.begin(115200);
     main_clock_init();
+    // Publish how many Animation Splash animations this build ships so the app can show exactly the
+    // set the connected clock has (the 16MB build may ship more than the 4MB one). BLE and matrix are
+    // both up by now (main_clock_init()).
+    ble_set_animation_count(matrix_get_animation_count());
     ESP_LOGI(TAG, "Firmware version: %s", ota_get_current_version());
 }
 
