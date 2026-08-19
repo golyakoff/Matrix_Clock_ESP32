@@ -20,7 +20,7 @@
 #define RTC_MEMORY_ANIM_SPLASH_MODE_MASK        0b00000011  // bits 0..1: cadence mode 0..3
 #define RTC_MEMORY_ANIM_SPLASH_DURATION_MASK    0b00001100  // bits 2..3: playback duration 0..3
 #define RTC_MEMORY_ANIM_SPLASH_DURATION_SHIFT   (2U)
-#define RTC_MEMORY_ANIM_SPLASH_INDEX_MASK       0b01110000  // bits 4..6: animation index 0..7
+#define RTC_MEMORY_ANIM_SPLASH_INDEX_MASK       0b11110000  // bits 4..7: animation index 0..15
 #define RTC_MEMORY_ANIM_SPLASH_INDEX_SHIFT      (4U)
 
 static const char* TAG = "RTC";
@@ -180,7 +180,8 @@ bool RealTimeClock::loadColorOrder(bool *use_rrbbgg)
 
 bool RealTimeClock::saveAnimationSplash(uint8_t mode, uint8_t duration, uint8_t index)
 {
-    // Read-modify-write to keep the highest bit of this register free for future use.
+    // Read-modify-write: this register is written whole, but keep the pattern in case bits are
+    // handed to something else later. Since v1.8.0 the index owns bits 4..7, so nothing is spare.
     uint8_t buffer;
     if (!_rtc.readBuffer(DS3231_REG_ALARM1_DD, &buffer, sizeof(buffer)))
         return false;

@@ -3,22 +3,62 @@
     {
       "slug": "ruflag",
       "name": "Russian flag",
-      "source": "img/ruflag_64x32.gif"
+      "source": "img/ruflag_64x32.gif",
+      "min_flash_mb": 4
     },
     {
       "slug": "nyancat",
       "name": "Nyan Cat",
-      "source": "img/nyan_64x32.gif"
+      "source": "img/nyan_64x32.gif",
+      "min_flash_mb": 4
     },
     {
       "slug": "pacman",
       "name": "Pac-Man",
-      "source": "img/pacman_64x32.gif"
+      "source": "img/pacman_64x32.gif",
+      "min_flash_mb": 4
     },
     {
       "slug": "rick_and_morty",
       "name": "Rick & Morty",
-      "source": "img/rick_and_morty_64x32.gif"
+      "source": "img/rick_and_morty_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "minions",
+      "name": "Minions",
+      "source": "img/minions_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "bmo",
+      "name": "BMO",
+      "source": "img/adv_bmo_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "finn",
+      "name": "Finn",
+      "source": "img/adv_finn_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "mochi_cat",
+      "name": "Mochi cat",
+      "source": "img/mochi-cat_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "color_bars",
+      "name": "Color bars",
+      "source": "img/color_bars_64x32.gif",
+      "min_flash_mb": 4
+    },
+    {
+      "slug": "audio_tape",
+      "name": "Audio tape",
+      "source": "img/audio_tape_64x32.gif",
+      "min_flash_mb": 4
     }
   ]
 }

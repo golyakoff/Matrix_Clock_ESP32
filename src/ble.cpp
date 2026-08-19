@@ -14,13 +14,16 @@
 
 #define MC_HOURLY_BRIGHTNESS_LEN       (24U)
 
-// Animation Splash single-byte layout (see MC_ANIMATION_SPLASH_CHAR_UUID in ble.h)
+// Animation Splash two-byte layout (see MC_ANIMATION_SPLASH_CHAR_UUID in ble.h)
 #define MC_ANIM_SPLASH_MODE_MASK       0b00000011
 #define MC_ANIM_SPLASH_DURATION_MASK   0b00001100
 #define MC_ANIM_SPLASH_DURATION_SHIFT  (2U)
-#define MC_ANIM_SPLASH_INDEX_MASK      0b01110000
+#define MC_ANIM_SPLASH_INDEX_MASK      0b01110000  // byte 0: the low 3 bits of the index
 #define MC_ANIM_SPLASH_INDEX_SHIFT     (4U)
 #define MC_ANIM_SPLASH_PREVIEW_MASK    0b10000000
+#define MC_ANIM_SPLASH_INDEX_HI_MASK   0b00000001  // byte 1: the high bit of the index
+#define MC_ANIM_SPLASH_INDEX_HI_SHIFT  (3U)        // ...which is bit 3 of the index itself
+#define MC_ANIM_SPLASH_LEN             (2U)
 
 static const char* TAG = "BLE";
 
@@ -272,7 +275,10 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()) && param->write.len == 1)
+        // The second byte (the high bit of the animation index) is optional: an app older than
+        // firmware v1.8.0 writes a single byte and means index 0..7.
+        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()) &&
+           (param->write.len == 1 || param->write.len == MC_ANIM_SPLASH_LEN))
         {
             if (_set_animation_splash_on_ble_write == nullptr)
             {
@@ -281,9 +287,11 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             }
 
             uint8_t value = param->write.value[0];
+            uint8_t value_hi = (param->write.len == MC_ANIM_SPLASH_LEN) ? param->write.value[1] : 0U;
             uint8_t mode = value & MC_ANIM_SPLASH_MODE_MASK;
             uint8_t duration = (value & MC_ANIM_SPLASH_DURATION_MASK) >> MC_ANIM_SPLASH_DURATION_SHIFT;
-            uint8_t index = (value & MC_ANIM_SPLASH_INDEX_MASK) >> MC_ANIM_SPLASH_INDEX_SHIFT;
+            uint8_t index = ((value & MC_ANIM_SPLASH_INDEX_MASK) >> MC_ANIM_SPLASH_INDEX_SHIFT) |
+                            ((value_hi & MC_ANIM_SPLASH_INDEX_HI_MASK) << MC_ANIM_SPLASH_INDEX_HI_SHIFT);
             bool preview_now = (value & MC_ANIM_SPLASH_PREVIEW_MASK) > 0;
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
@@ -471,10 +479,14 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             uint8_t duration = 0;
             uint8_t index = 0;
             _get_animation_splash_on_ble_read(&mode, &duration, &index);
-            uint8_t data_val[1] = { static_cast<uint8_t>(
-                (mode & MC_ANIM_SPLASH_MODE_MASK) |
-                ((duration << MC_ANIM_SPLASH_DURATION_SHIFT) & MC_ANIM_SPLASH_DURATION_MASK) |
-                ((index << MC_ANIM_SPLASH_INDEX_SHIFT) & MC_ANIM_SPLASH_INDEX_MASK)) };
+            // A client that only reads byte 0 still gets a usable value for animations 0..7.
+            uint8_t data_val[MC_ANIM_SPLASH_LEN] = {
+                static_cast<uint8_t>(
+                    (mode & MC_ANIM_SPLASH_MODE_MASK) |
+                    ((duration << MC_ANIM_SPLASH_DURATION_SHIFT) & MC_ANIM_SPLASH_DURATION_MASK) |
+                    ((index << MC_ANIM_SPLASH_INDEX_SHIFT) & MC_ANIM_SPLASH_INDEX_MASK)),
+                static_cast<uint8_t>(
+                    (index >> MC_ANIM_SPLASH_INDEX_HI_SHIFT) & MC_ANIM_SPLASH_INDEX_HI_MASK) };
             pCharacteristic->setValue(data_val, sizeof(data_val));
             return;
         }

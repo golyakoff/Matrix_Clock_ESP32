@@ -1,6 +1,6 @@
 #ifndef __VERSION_H__
 #define __VERSION_H__
 
-#define MATRIX_CLOCK_FIRMWARE_VERSION "v1.7.0"
+#define MATRIX_CLOCK_FIRMWARE_VERSION "v1.8.0"
 
 #endif // __VERSION_H__

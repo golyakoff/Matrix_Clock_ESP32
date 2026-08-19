@@ -44,10 +44,14 @@
 #define MC_COLOR_ORDER_CHAR_UUID            "36B8588D-6F99-4BDC-8B6F-13089F234978" // M Read, Write
 
 // Animation Splash control point: an animated screensaver played at the start of the hour.
-// Single byte: bits0..1 = cadence mode (0 = off, 1 = daily, 2 = every 3 hours, 3 = hourly),
-// bits2..3 = playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s), bits4..6 = animation index
-// (0..7), bit7 = "play now" preview command (fires an immediate one-off preview, independent of
-// time and mode).
+// Byte 0: bits0..1 = cadence mode (0 = off, 1 = daily, 2 = every 3 hours, 3 = hourly),
+// bits2..3 = playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s), bits4..6 = the low 3 bits of
+// the animation index, bit7 = "play now" preview command (fires an immediate one-off preview,
+// independent of time and mode).
+// Byte 1 (since firmware v1.8.0): bit0 = the high bit of the animation index, so the index spans
+// 0..15; bits1..7 reserved (write 0). The second byte is optional in both directions: a write of
+// one byte is accepted and treated as index bit3 = 0 (what a pre-v1.8.0 app sends), and a client
+// that reads only byte 0 still gets a correct mode/duration/preview plus animations 0..7.
 #define MC_ANIMATION_SPLASH_CHAR_UUID       "A3F1C2D4-5B6E-47A8-9C0D-1E2F3A4B5C6D" // M Read, Write
 
 // Hourly brightness schedule: 24 brightness nibbles (0..15), one per hour of day (index 0 = 00h..00:59, ... index 23 = 23h..23:59).
@@ -126,7 +130,7 @@ typedef bool (*ble_get_color_order_on_ble_read_t)();
  *
  * @param mode the cadence mode (0 = off, 1 = daily, 2 = every 3 hours, 3 = hourly).
  * @param duration the playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s).
- * @param index the selected animation index (0..7).
+ * @param index the selected animation index (0..15).
  * @param preview_now true if an immediate one-off preview of the selected animation was requested.
  */
 typedef void (*ble_set_animation_splash_on_ble_write_t)(const uint8_t mode, const uint8_t duration, const uint8_t index, const bool preview_now);
@@ -136,7 +140,7 @@ typedef void (*ble_set_animation_splash_on_ble_write_t)(const uint8_t mode, cons
  *
  * @param mode the pointer to the memory for storing the cadence mode (0..3).
  * @param duration the pointer to the memory for storing the playback duration (0..3).
- * @param index the pointer to the memory for storing the selected animation index (0..7).
+ * @param index the pointer to the memory for storing the selected animation index (0..15).
  */
 typedef void (*ble_get_animation_splash_on_ble_read_t)(uint8_t* mode, uint8_t* duration, uint8_t* index);
 

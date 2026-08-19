@@ -219,7 +219,7 @@ typedef enum {
  *
  * @param mode how often to play the animation (see animation_splash_mode_t, 0..3).
  * @param duration how long each run lasts (see animation_splash_duration_t, 0..3).
- * @param index the selected animation index (0..7); out-of-range values fall back to animation 0.
+ * @param index the selected animation index (0..15); out-of-range values fall back to animation 0.
  */
 void matrix_set_animation_splash(uint8_t mode, uint8_t duration, uint8_t index);
 
@@ -229,7 +229,7 @@ void matrix_set_animation_splash(uint8_t mode, uint8_t duration, uint8_t index);
  *
  * @param mode the pointer to the memory for storing the cadence mode (0..3).
  * @param duration the pointer to the memory for storing the playback duration (0..3).
- * @param index the pointer to the memory for storing the selected animation index (0..7).
+ * @param index the pointer to the memory for storing the selected animation index (0..15).
  */
 void matrix_get_animation_splash(uint8_t *mode, uint8_t *duration, uint8_t *index);
 

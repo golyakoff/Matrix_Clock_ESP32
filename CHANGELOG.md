@@ -1,3 +1,11 @@
+Release 1.8.0
+
+- [x] Added six more Animation Splash animations: Minions (index 4), BMO (5), Finn (6), Mochi cat (7), Color bars (8) and Audio tape (9). The four animations that shipped before keep indices 0..3, so a device's current selection is unaffected by the update
+- [x] Widened the Animation Splash animation index from 3 to 4 bits (0..15) to fit them. In the RTC's byte `0Ah` the index now occupies bits 4..7 (the previously reserved top bit became the index's high bit; older firmware always wrote it as 0, so an updated clock keeps playing the animation it had). The BLE characteristic (`MC_ANIMATION_SPLASH_CHAR_UUID`) grew from 1 to 2 bytes: byte 0 keeps the existing layout (mode, duration, the index's low 3 bits, "play now" preview) and byte 1 bit0 carries the index's high bit, the rest reserved. Both directions stay compatible with a 1-byte client: a 1-byte write is accepted and read as index 0..7, and a client reading only byte 0 gets a correct mode/duration/preview
+- [x] Animations can now be restricted to the larger boards: `tools/gen_animation.py` takes `--min-flash-mb 16` and records it in `tools/animations_manifest.json`, and the generated registry (`include/animations.h`) wraps those animations' `#include` and table entry in `#if MC_FLASH_MB >= 16` (`MC_FLASH_MB` is set per environment in `platformio.ini`), keeping their pixel data out of the 4MB binary; `ANIMATION_COUNT` is derived from the table so it follows the gating. Nothing is gated in this release — all ten animations still fit both builds (the 4MB release binary is at 92% of its partition) — but the mechanism is there for when they stop fitting
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.7.0...v1.8.0
+
 Release 1.7.0
 
 - [x] Exposed the physical flash chip size over BLE via a new read-only characteristic (`MC_FLASH_SIZE_CHAR_UUID`, 1 byte = whole megabytes, e.g. 4 or 16). Read from the flash chip's JEDEC id at boot (`ESP.getFlashChipSize()`), so it reflects the actual hardware regardless of which build is currently flashed. The companion app shows it in the System card and uses it to pick the matching release binary (4MB vs 16MB) for OTA updates instead of always assuming 4MB

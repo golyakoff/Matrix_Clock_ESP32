@@ -7,10 +7,23 @@
 // translation unit (matrix.cpp): the per-animation headers define the pixel
 // arrays with external linkage, so including it twice would break the link.
 
+// Board flash size in MB, set per environment in platformio.ini. Animations
+// that only fit the bigger boards are gated on it; assume the small board
+// when it is missing so an ungated build still links.
+#ifndef MC_FLASH_MB
+#define MC_FLASH_MB 4
+#endif
+
 #include "animations/ruflag.h"
 #include "animations/nyancat.h"
 #include "animations/pacman.h"
 #include "animations/rick_and_morty.h"
+#include "animations/minions.h"
+#include "animations/bmo.h"
+#include "animations/finn.h"
+#include "animations/mochi_cat.h"
+#include "animations/color_bars.h"
+#include "animations/audio_tape.h"
 
 typedef struct {
     const char*     name;        // human-readable label (for the app/debug)
@@ -21,14 +34,21 @@ typedef struct {
     const uint16_t* frame_ms;    // per-frame duration in ms, frame_count entries
 } animation_t;
 
-#define ANIMATION_COUNT 4
-
-static const animation_t ANIMATIONS[ANIMATION_COUNT] = {
+static const animation_t ANIMATIONS[] = {
     { "Russian flag", RUFLAG_WIDTH, RUFLAG_HEIGHT, RUFLAG_FRAME_COUNT, RUFLAG_FRAMES, RUFLAG_FRAME_MS },
     { "Nyan Cat", NYANCAT_WIDTH, NYANCAT_HEIGHT, NYANCAT_FRAME_COUNT, NYANCAT_FRAMES, NYANCAT_FRAME_MS },
     { "Pac-Man", PACMAN_WIDTH, PACMAN_HEIGHT, PACMAN_FRAME_COUNT, PACMAN_FRAMES, PACMAN_FRAME_MS },
     { "Rick & Morty", RICK_AND_MORTY_WIDTH, RICK_AND_MORTY_HEIGHT, RICK_AND_MORTY_FRAME_COUNT, RICK_AND_MORTY_FRAMES, RICK_AND_MORTY_FRAME_MS },
+    { "Minions", MINIONS_WIDTH, MINIONS_HEIGHT, MINIONS_FRAME_COUNT, MINIONS_FRAMES, MINIONS_FRAME_MS },
+    { "BMO", BMO_WIDTH, BMO_HEIGHT, BMO_FRAME_COUNT, BMO_FRAMES, BMO_FRAME_MS },
+    { "Finn", FINN_WIDTH, FINN_HEIGHT, FINN_FRAME_COUNT, FINN_FRAMES, FINN_FRAME_MS },
+    { "Mochi cat", MOCHI_CAT_WIDTH, MOCHI_CAT_HEIGHT, MOCHI_CAT_FRAME_COUNT, MOCHI_CAT_FRAMES, MOCHI_CAT_FRAME_MS },
+    { "Color bars", COLOR_BARS_WIDTH, COLOR_BARS_HEIGHT, COLOR_BARS_FRAME_COUNT, COLOR_BARS_FRAMES, COLOR_BARS_FRAME_MS },
+    { "Audio tape", AUDIO_TAPE_WIDTH, AUDIO_TAPE_HEIGHT, AUDIO_TAPE_FRAME_COUNT, AUDIO_TAPE_FRAMES, AUDIO_TAPE_FRAME_MS },
 };
+
+// Counted from the table so the gated entries above simply drop out of it.
+#define ANIMATION_COUNT ((uint8_t)(sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0])))
 
 // Returns a valid animation for the given index, clamped into range.
 static inline const animation_t* animation_get(uint8_t index)

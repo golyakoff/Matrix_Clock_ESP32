@@ -37,9 +37,9 @@
 //
 //          The next 2 bits store the playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s).
 //
-//          The next 3 bits store the selected animation index (0..7).
-//
-//          * 1 highest bit: Reserved for future.
+//          The 4 highest bits store the selected animation index (0..15). The topmost of them was
+//          reserved until firmware v1.8.0; older firmware always wrote it as 0, so a device
+//          upgraded from it reads back the same animation it had.
 //
 // OBh-0Ch: Lowest 11 bits starting from DS3231_REG_ALARM1_SEC are used to store
 //          "on" alarm time as an integer value equals to the 
@@ -199,7 +199,7 @@ class RealTimeClock
          *
          * @param mode the cadence mode (0 = off, 1 = daily, 2 = every 3 hours, 3 = hourly).
          * @param duration the playback duration (0 = 10s, 1 = 20s, 2 = 40s, 3 = 60s).
-         * @param index the selected animation index (0..7).
+         * @param index the selected animation index (0..15).
          * @return true if saving successfully done, otherwise false
          */
         bool saveAnimationSplash(uint8_t mode, uint8_t duration, uint8_t index);
@@ -209,7 +209,7 @@ class RealTimeClock
          *
          * @param mode the pointer to the memory for storing the cadence mode (0..3).
          * @param duration the pointer to the memory for storing the playback duration (0..3).
-         * @param index the pointer to the memory for storing the selected animation index (0..7).
+         * @param index the pointer to the memory for storing the selected animation index (0..15).
          * @return true if loading successfully done, otherwise false
          */
         bool loadAnimationSplash(uint8_t *mode, uint8_t *duration, uint8_t *index);

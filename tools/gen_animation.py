@@ -9,8 +9,17 @@ JSON manifest so newly added animations get picked up automatically.
 On ESP32 `const` data is memory-mapped from flash and directly addressable, so
 the arrays are plain `const uint16_t[]` (no PROGMEM / pgm_read_* needed).
 
+An animation can be restricted to the bigger boards with --min-flash-mb 16: the
+registry then wraps both its #include and its table entry in
+`#if MC_FLASH_MB >= 16` (MC_FLASH_MB is set per environment in platformio.ini),
+so its pixel data never reaches the 4MB binary. Gated animations are always
+emitted last, which keeps the 4MB set a prefix of the 16MB set - the animation
+index is stored in the RTC and sent over BLE, so it has to mean the same thing
+on both builds.
+
 Usage:
     python tools/gen_animation.py img/nyan_64x32.gif nyancat --name "Nyan Cat"
+    python tools/gen_animation.py img/minions_64x32.gif minions --name "Minions" --min-flash-mb 16
 
 Requires Pillow:  python -m pip install pillow
 """
@@ -31,6 +40,10 @@ MANIFEST = os.path.join(REPO_ROOT, "tools", "animations_manifest.json")
 # The firmware panel size. Frames are validated against this.
 PANEL_W = 64
 PANEL_H = 32
+
+# The animation index travels in 4 bits (BLE byte 0 bits4..6 + byte 1 bit0 / RTC byte 0Ah
+# bits4..7), so 16 is the ceiling.
+MAX_ANIMATIONS = 16
 
 
 def rgb565(r, g, b):
@@ -98,7 +111,10 @@ def write_animation_header(slug, width, height, frames):
 def load_manifest():
     if os.path.exists(MANIFEST):
         with open(MANIFEST, "r", encoding="utf-8") as f:
-            return json.load(f)
+            manifest = json.load(f)
+        for entry in manifest["animations"]:
+            entry.setdefault("min_flash_mb", 4)  # written before gating existed
+        return manifest
     return {"animations": []}
 
 
@@ -108,17 +124,39 @@ def save_manifest(manifest):
         f.write("\n")
 
 
-def upsert_manifest(manifest, slug, name, source):
+def upsert_manifest(manifest, slug, name, source, min_flash_mb):
     for entry in manifest["animations"]:
         if entry["slug"] == slug:
             entry["name"] = name
             entry["source"] = source
+            entry["min_flash_mb"] = min_flash_mb
             return
-    manifest["animations"].append({"slug": slug, "name": name, "source": source})
+    manifest["animations"].append(
+        {"slug": slug, "name": name, "source": source, "min_flash_mb": min_flash_mb}
+    )
+
+
+def guard_open(entry):
+    mb = entry.get("min_flash_mb", 4)
+    return [f"#if MC_FLASH_MB >= {mb}"] if mb > 4 else []
+
+
+def guard_close(entry):
+    return ["#endif"] if entry.get("min_flash_mb", 4) > 4 else []
+
+
+def registry_order(manifest):
+    """Manifest order, but with the flash-gated animations moved to the end.
+
+    Defines the animation index, so the unconditional animations must keep the
+    low indices: that makes the 4MB set a prefix of the 16MB set.
+    """
+    entries = manifest["animations"]
+    return sorted(entries, key=lambda e: e.get("min_flash_mb", 4))
 
 
 def write_registry(manifest):
-    entries = manifest["animations"]
+    entries = registry_order(manifest)
     path = REGISTRY_PATH
     lines = []
     lines.append("#pragma once")
@@ -130,8 +168,17 @@ def write_registry(manifest):
     lines.append("// translation unit (matrix.cpp): the per-animation headers define the pixel")
     lines.append("// arrays with external linkage, so including it twice would break the link.")
     lines.append("")
+    lines.append("// Board flash size in MB, set per environment in platformio.ini. Animations")
+    lines.append("// that only fit the bigger boards are gated on it; assume the small board")
+    lines.append("// when it is missing so an ungated build still links.")
+    lines.append("#ifndef MC_FLASH_MB")
+    lines.append("#define MC_FLASH_MB 4")
+    lines.append("#endif")
+    lines.append("")
     for entry in entries:
+        lines.extend(guard_open(entry))
         lines.append(f'#include "animations/{entry["slug"]}.h"')
+        lines.extend(guard_close(entry))
     lines.append("")
     lines.append("typedef struct {")
     lines.append("    const char*     name;        // human-readable label (for the app/debug)")
@@ -142,15 +189,18 @@ def write_registry(manifest):
     lines.append("    const uint16_t* frame_ms;    // per-frame duration in ms, frame_count entries")
     lines.append("} animation_t;")
     lines.append("")
-    lines.append(f"#define ANIMATION_COUNT {len(entries)}")
-    lines.append("")
-    lines.append("static const animation_t ANIMATIONS[ANIMATION_COUNT] = {")
+    lines.append("static const animation_t ANIMATIONS[] = {")
     for entry in entries:
         p = entry["slug"].upper()
+        lines.extend(guard_open(entry))
         lines.append(
             f'    {{ "{entry["name"]}", {p}_WIDTH, {p}_HEIGHT, {p}_FRAME_COUNT, {p}_FRAMES, {p}_FRAME_MS }},'
         )
+        lines.extend(guard_close(entry))
     lines.append("};")
+    lines.append("")
+    lines.append("// Counted from the table so the gated entries above simply drop out of it.")
+    lines.append("#define ANIMATION_COUNT ((uint8_t)(sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0])))")
     lines.append("")
     lines.append("// Returns a valid animation for the given index, clamped into range.")
     lines.append("static inline const animation_t* animation_get(uint8_t index)")
@@ -170,6 +220,8 @@ def main():
     ap.add_argument("gif", help="path to the source GIF (expected 64x32)")
     ap.add_argument("slug", help="lowercase identifier, e.g. 'nyancat' (used for the file and macro prefix)")
     ap.add_argument("--name", help="human-readable label; defaults to the slug")
+    ap.add_argument("--min-flash-mb", type=int, choices=(4, 16), default=4,
+                    help="smallest board this animation ships on (default 4 = every build)")
     args = ap.parse_args()
 
     if not re.fullmatch(r"[a-z][a-z0-9_]*", args.slug):
@@ -189,14 +241,25 @@ def main():
     header = write_animation_header(args.slug, width, height, frames)
 
     manifest = load_manifest()
-    upsert_manifest(manifest, args.slug, name, os.path.relpath(args.gif, REPO_ROOT).replace("\\", "/"))
+    upsert_manifest(manifest, args.slug, name,
+                    os.path.relpath(args.gif, REPO_ROOT).replace("\\", "/"), args.min_flash_mb)
+    if len(manifest["animations"]) > MAX_ANIMATIONS:
+        sys.exit(f"error: {len(manifest['animations'])} animations, but the index is 3 bits "
+                 f"(max {MAX_ANIMATIONS}) - drop one first")
     save_manifest(manifest)
     registry = write_registry(manifest)
 
     total_words = sum(len(p) for (p, _d) in frames)
+    counts = {}
+    for entry in manifest["animations"]:
+        counts[entry.get("min_flash_mb", 4)] = counts.get(entry.get("min_flash_mb", 4), 0) + 1
+    n_4mb = counts.get(4, 0)
+    n_16mb = n_4mb + counts.get(16, 0)
     print(f"Wrote {os.path.relpath(header, REPO_ROOT)} "
-          f"({len(frames)} frames, {total_words * 2} bytes of pixel data)")
-    print(f"Wrote {os.path.relpath(registry, REPO_ROOT)} (ANIMATION_COUNT = {len(manifest['animations'])})")
+          f"({len(frames)} frames, {total_words * 2} bytes of pixel data, "
+          f"{args.min_flash_mb}MB boards and up)")
+    print(f"Wrote {os.path.relpath(registry, REPO_ROOT)} "
+          f"(ANIMATION_COUNT = {n_4mb} on 4MB, {n_16mb} on 16MB)")
 
 
 if __name__ == "__main__":
