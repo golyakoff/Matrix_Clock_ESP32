@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 tools/__pycache__
+release/
+release_notes.md

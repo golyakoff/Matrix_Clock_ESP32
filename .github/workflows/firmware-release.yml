@@ -20,7 +20,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v7
       with:
-        python-version: '3.9'
+        python-version: '3.12'
 
     - name: Install PlatformIO
       run: |
@@ -38,81 +38,20 @@ jobs:
       id: get_version
       run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-    - name: Rename firmware files with meaningful names
-      run: |
-        cp .pio/build/esp32_4mb_debug/firmware.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_fw.bin"
-        cp .pio/build/esp32_4mb_debug/partitions.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_pt.bin"
-        
-        cp .pio/build/esp32_4mb/firmware.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_fw.bin"
-        cp .pio/build/esp32_4mb/partitions.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_pt.bin"
-        
-        cp .pio/build/esp32_16mb/firmware.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_fw.bin"
-        cp .pio/build/esp32_16mb/partitions.bin "tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_pt.bin"
+    - name: Install esptool
+      run: pip install "esptool>=5,<6"
 
-    - name: List final artifacts
+    - name: Package release assets and release notes
       run: |
-        echo "=== Final firmware files ==="
-        ls -la *.bin
-        echo ""
-        echo "=== File sizes ==="
-        du -h *.bin
+        chmod +x tools/make_release.sh
+        tools/make_release.sh "${{ steps.get_version.outputs.TAG_NAME }}"
 
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
-        files: |
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_fw.bin
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_pt.bin
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_fw.bin
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_pt.bin
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_fw.bin
-          tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_pt.bin
-
+        files: release/*
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         name: Release ${{ steps.get_version.outputs.TAG_NAME }}
-        body: |
-          # Tetris Clock ESP32 Firmware
-          
-          **Version:** ${{ steps.get_version.outputs.TAG_NAME }}
-          **Build date:** ${{ github.event.head_commit.timestamp }}
-          
-          ## Available Firmware Images
-          
-          ### 🐞 Debug Version (with logging)
-          **4MB Flash:**
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_fw.bin` - Firmware
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_pt.bin` - Partition table
-
-          ```bash
-          esptool.py --chip esp32 --baud 921600 write_flash --flash-mode dio --flash-size 4MB \
-          0x1000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_fw.bin \
-          0x8000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_debug_4mb_pt.bin
-          ```
-          
-          ### 🚀 Production Version (optimized)
-          **4MB Flash:**
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_fw.bin` - Firmware
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_pt.bin` - Partition table
-
-          ```bash
-          esptool.py --chip esp32 --baud 921600 write_flash --flash-mode dio --flash-size 4MB \
-          0x1000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_fw.bin \
-          0x8000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_4mb_pt.bin
-          ```
-          
-          **16MB Flash:**
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_fw.bin` - Firmware
-          - `tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_pt.bin` - Partition table
-          
-          ```bash
-          esptool.py --chip esp32 --baud 921600 write_flash --flash-mode dio --flash-size 16MB \
-          0x1000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_fw.bin \
-          0x8000 tetris-clock_${{ steps.get_version.outputs.TAG_NAME }}_release_16mb_pt.bin
-          ```
-          
-          ## Notes
-          - **Debug versions** include serial logging and debug features
-          - **Production versions** are optimized for size and performance
-          - Use corresponding partition table with each firmware
+        body_path: release_notes.md
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
