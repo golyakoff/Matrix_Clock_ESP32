@@ -57,8 +57,13 @@ only big thing that can still give way (`tools/gen_animation.py --min-flash-mb 1
 - An update from the internet is installed only on request from the app (Command 0x03), never
   automatically. A new firmware is confirmed after 30 s of running (bootloader rollback).
 
-## Hardware testing
+## Tests
 
-There is no board attached to the dev box. Changes to the display timing, the touch pad, BLE or OTA
-need a test on the clock by the user before a release: build test images with `make_release.sh`
-into the scratchpad and send them.
+- `make -C test/host` — host unit tests of hardware independent code (`time_helper.cpp`), plain g++.
+- `test/hil` — hardware-in-the-loop tests (pytest + bleak): the PC plays the phone over BLE and reads the
+  clock's log over USB; see test/hil/README.md. They cover the whole BLE protocol, settings persistence,
+  the time keeping, WiFi, the BLE upload and the rollback. Add a test there with every protocol change.
+
+There is no board attached to the dev box: the user runs the HIL tests. Changes to the display timing,
+the touch pad, BLE or OTA need a test on the clock before a release: build test images with
+`make_release.sh` into the scratchpad and send them.
