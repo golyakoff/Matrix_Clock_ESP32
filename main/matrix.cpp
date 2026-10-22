@@ -36,6 +36,10 @@ PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D);
 TetrisMatrixDraw tetris(display);
 
 static uint8_t tim_100hz;
+// Set when the display is turned on/off or the brightness settings change, so the next 100 Hz tick
+// applies it right away instead of waiting for the once-a-second brightness check (the touch pad
+// felt dead for up to a second, and impatient double touches toggled the display twice)
+static volatile bool _brightness_changed = false;
 
 static uint8_t _brightness = INIT_BRIGHTNESS;
 static uint8_t _brightness_last = 0;
@@ -323,8 +327,9 @@ void matrix_100hz_loop()
             _force_update = false;
     }
 
-    if (++tim_100hz > 100)
+    if (++tim_100hz > 100 || _brightness_changed)
     {
+        _brightness_changed = false;
         check_brightness_tick();
         tim_100hz = 0;
     }
@@ -354,6 +359,7 @@ void matrix_get_time(struct tm *dt_out)
 void matrix_set_show(bool show)
 {
     _show = show;
+    _brightness_changed = true;
 }
 
 bool matrix_get_show()
@@ -364,6 +370,7 @@ bool matrix_get_show()
 void matrix_set_auto_brightness(bool use_auto_brightness)
 {
     _use_auto_brightness = use_auto_brightness;
+    _brightness_changed = true;
 }
 
 bool matrix_get_auto_brightness()
@@ -374,6 +381,7 @@ bool matrix_get_auto_brightness()
 void matrix_set_manual_brightness(uint8_t manual_brightness_nibble)
 {
     _manual_brightness_nibble = manual_brightness_nibble;
+    _brightness_changed = true;
 }
 
 uint8_t matrix_get_manual_brightness()
