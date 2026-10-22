@@ -53,6 +53,9 @@ RealTimeClock rtc;
 
 IRAM_ATTR void touch_callback_isr();
 static volatile uint32_t _touch_last_interrupt_time = 0;
+// Set by the touch ISR: the BLE notification about the new "show" state is sent from loop(), since
+// the BLE stack can't be called from an interrupt.
+static volatile bool _touch_show_changed = false;
 static const uint32_t _touch_debounce_delay = 100;
 static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUCH_THRESHOLD);
 
@@ -119,6 +122,11 @@ void loop()
         }
 
         main_brightness_schedule_flush();
+
+        if (_touch_show_changed) {
+            _touch_show_changed = false;
+            ble_update_matrix_show(matrix_get_show());
+        }
     }
 }
 
@@ -642,7 +650,7 @@ IRAM_ATTR void touch_callback_isr()
 
     bool new_matrix_show = !matrix_get_show();
     matrix_set_show(new_matrix_show);
-    ble_update_matrix_show(new_matrix_show);
+    _touch_show_changed = true;
 
     _touch_last_interrupt_time = current_millis;
 }

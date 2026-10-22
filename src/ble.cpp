@@ -1,8 +1,5 @@
 #include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <NimBLEDevice.h>
 #include <string.h>
 #include <esp_log.h>
 
@@ -29,38 +26,34 @@ static const char* TAG = "BLE";
 
 // BLE Transmission Type: LSO: Least Significant Octet First
 
-// Declare and init BLE characteristics
-static BLECharacteristic _mct_char(MC_TIME_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
-static BLECharacteristic _mcts_char(MC_TIME_STR_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-
-static BLECharacteristic _mctofa_char(MC_TURN_OFF_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mctona_char(MC_TURN_ON_ALARM_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-
-static BLECharacteristic _mctnc_char(MC_TURN_ON_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
-
-static BLECharacteristic _mcabe_char(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcmbv_char(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcco_char(MC_COLOR_ORDER_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcas_char(MC_ANIMATION_SPLASH_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mchbt_char(MC_HOURLY_BRIGHTNESS_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-
-static BLECharacteristic _mctt_char(MC_TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
-static BLECharacteristic _mctao_char(MC_AGING_OFFSET_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
-
-static BLECharacteristic _mcfs_char(MC_FLASH_SIZE_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
-static BLECharacteristic _mcac_char(MC_ANIMATION_COUNT_CHAR_UUID, BLECharacteristic::PROPERTY_READ);
-static BLECharacteristic _mcfv_char(MC_VERSION_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-static BLECharacteristic _mcotac_char(MC_OTA_CONTROL_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-static BLECharacteristic _mcotad_char(MC_OTA_DATA_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE /*| BLECharacteristic::PROPERTY_WRITE_NR*/);
+// BLE characteristics, created in ble_init(). NimBLE adds the CCCD (0x2902) descriptor to every
+// characteristic with the notify property by itself.
+static NimBLECharacteristic* _mct_char = nullptr;
+static NimBLECharacteristic* _mcts_char = nullptr;
+static NimBLECharacteristic* _mctofa_char = nullptr;
+static NimBLECharacteristic* _mctona_char = nullptr;
+static NimBLECharacteristic* _mctnc_char = nullptr;
+static NimBLECharacteristic* _mcabe_char = nullptr;
+static NimBLECharacteristic* _mcmbv_char = nullptr;
+static NimBLECharacteristic* _mcco_char = nullptr;
+static NimBLECharacteristic* _mcas_char = nullptr;
+static NimBLECharacteristic* _mchbt_char = nullptr;
+static NimBLECharacteristic* _mctt_char = nullptr;
+static NimBLECharacteristic* _mctao_char = nullptr;
+static NimBLECharacteristic* _mcfs_char = nullptr;
+static NimBLECharacteristic* _mcac_char = nullptr;
+static NimBLECharacteristic* _mcfv_char = nullptr;
+static NimBLECharacteristic* _mcotac_char = nullptr;
+static NimBLECharacteristic* _mcotad_char = nullptr;
 
 // Variables
 static bool _device_connected = false;
 
 // Kept so an OTA update can ask the central for connection parameters friendlier to the fast
 // firmware stream (a long supervision timeout) - see ble_request_ota_conn_params().
-static BLEServer* _pServer = nullptr;
-static esp_bd_addr_t _peer_bda;
-static bool _have_peer_bda = false;
+static NimBLEServer* _pServer = nullptr;
+static uint16_t _conn_handle = 0;
+static bool _have_conn_handle = false;
 
 static struct tm _last_update_dt;
 
@@ -68,7 +61,7 @@ static char _mcts_char_buffer[20];       // string time buffer for conversion
 static std::string _mcts_char_value;     // string time
 static uint32_t _mct_char_value;         // epoch time
 
-void start_advertising(BLEServer* pServer);
+void start_advertising();
 
 static ble_set_time_on_ble_write_t _set_time_on_ble_write = nullptr;
 
@@ -103,40 +96,40 @@ static ble_set_ota_control_ble_write_t _set_ota_control_ble_write = nullptr;
 static ble_set_ota_data_ble_write_t _set_ota_data_ble_write = nullptr;
 
 // BLE Server Callbacks class
-class MyServerCallbacks: public BLEServerCallbacks
+class MyServerCallbacks: public NimBLEServerCallbacks
 {
-    void onConnect(BLEServer* pServer)
+    void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override
     {
         _device_connected = true;
+        // Kept so ble_request_ota_conn_params() can target this connection when an OTA update starts.
+        _conn_handle = connInfo.getConnHandle();
+        _have_conn_handle = true;
         ESP_LOGI(TAG, "BLE device connected");
 
         // Translate the firmware version
         ble_update_firmware_version();
     }
 
-    // The stack calls this overload alongside the one above, with the connect event params. Capture
-    // the peer address so ble_request_ota_conn_params() can target it when an OTA update starts.
-    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param)
-    {
-        memcpy(_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-        _have_peer_bda = true;
-    }
-
-    void onDisconnect(BLEServer* pServer)
+    void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override
     {
         _device_connected = false;
-        _have_peer_bda = false;
-        ESP_LOGI(TAG, "BLE device disconnected");
+        _have_conn_handle = false;
+        ESP_LOGI(TAG, "BLE device disconnected, reason %d", reason);
 
-        start_advertising(pServer);
+        start_advertising();
     }
 };
 MyServerCallbacks _myServerCallbacks;
 
 // BLE Characteristic Callbacks class
-class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
-        if(pCharacteristic->getUUID().equals(_mct_char.getUUID()) && param->write.len == 4)
+class MyCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        // The value stays valid until the callback returns: the stack doesn't touch it meanwhile.
+        NimBLEAttValue value = pCharacteristic->getValue();
+        const uint8_t* write_value = value.data();
+        const size_t write_len = value.size();
+
+        if(pCharacteristic == _mct_char && write_len == 4)
         {
             if (_set_time_on_ble_write == nullptr)
             {
@@ -144,19 +137,19 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 return;
             }
 
-            _mct_char_value = param->write.value[0];
-            _mct_char_value |= param->write.value[1] << 8;
-            _mct_char_value |= param->write.value[2] << 16;
-            _mct_char_value |= param->write.value[3] << 24;
+            _mct_char_value = write_value[0];
+            _mct_char_value |= write_value[1] << 8;
+            _mct_char_value |= write_value[2] << 16;
+            _mct_char_value |= write_value[3] << 24;
             
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG,
                 "Write callback for char (%s), raw array (LSO): 0x%02x 0x%02x 0x%02x 0x%02x, uint32_t: 0x%08x (%d)",
                 pCharacteristic->getUUID().toString().c_str(),
-                param->write.value[3],
-                param->write.value[2],
-                param->write.value[1],
-                param->write.value[0],
+                write_value[3],
+                write_value[2],
+                write_value[1],
+                write_value[0],
                 _mct_char_value,
                 _mct_char_value);
             ESP_LOGD(TAG, "Calling callback _set_time_on_ble_write(dt)...");
@@ -173,9 +166,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
         
-        if(pCharacteristic->getUUID().equals(_mctnc_char.getUUID()) && param->write.len == 1)
+        if(pCharacteristic == _mctnc_char && write_len == 1)
         {
-            if (param->write.value[0] > 1)
+            if (write_value[0] > 1)
             {
                 ESP_LOGE(TAG, "Error, value of _mctnc_char provided is out of range [0, 1].");
                 return;
@@ -191,7 +184,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_show_on_ble_write(bool)...");
             #endif
 
-            _set_show_on_ble_write(param->write.value[0] == 1);
+            _set_show_on_ble_write(write_value[0] == 1);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -200,9 +193,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcabe_char.getUUID()) && param->write.len == 1)
+        if(pCharacteristic == _mcabe_char && write_len == 1)
         {
-            if (param->write.value[0] > 1)
+            if (write_value[0] > 1)
             {
                 ESP_LOGE(TAG, "Error, value of _mcabe_char provided is out of range [0, 1].");
                 return;
@@ -218,7 +211,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_auto_bright_en_on_ble_write(bool)...");
             #endif
 
-            _set_auto_bright_en_on_ble_write(param->write.value[0] == 1);
+            _set_auto_bright_en_on_ble_write(write_value[0] == 1);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -227,7 +220,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcmbv_char.getUUID()) && param->write.len == 1)
+        if(pCharacteristic == _mcmbv_char && write_len == 1)
         {
             if (_set_manual_bright_val_on_ble_write == nullptr)
             {
@@ -239,7 +232,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_manual_bright_val_on_ble_write(uint8_t)...");
             #endif
 
-            _set_manual_bright_val_on_ble_write(param->write.value[0]);
+            _set_manual_bright_val_on_ble_write(write_value[0]);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -248,9 +241,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcco_char.getUUID()) && param->write.len == 1)
+        if(pCharacteristic == _mcco_char && write_len == 1)
         {
-            if (param->write.value[0] > 1)
+            if (write_value[0] > 1)
             {
                 ESP_LOGE(TAG, "Error, value of _mcco_char provided is out of range [0, 1].");
                 return;
@@ -266,7 +259,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_color_order_on_ble_write(bool)...");
             #endif
 
-            _set_color_order_on_ble_write(param->write.value[0] == 1);
+            _set_color_order_on_ble_write(write_value[0] == 1);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -277,8 +270,8 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
         // The second byte (the high bit of the animation index) is optional: an app older than
         // firmware v1.8.0 writes a single byte and means index 0..7.
-        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()) &&
-           (param->write.len == 1 || param->write.len == MC_ANIM_SPLASH_LEN))
+        if(pCharacteristic == _mcas_char &&
+           (write_len == 1 || write_len == MC_ANIM_SPLASH_LEN))
         {
             if (_set_animation_splash_on_ble_write == nullptr)
             {
@@ -286,8 +279,8 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 return;
             }
 
-            uint8_t value = param->write.value[0];
-            uint8_t value_hi = (param->write.len == MC_ANIM_SPLASH_LEN) ? param->write.value[1] : 0U;
+            uint8_t value = write_value[0];
+            uint8_t value_hi = (write_len == MC_ANIM_SPLASH_LEN) ? write_value[1] : 0U;
             uint8_t mode = value & MC_ANIM_SPLASH_MODE_MASK;
             uint8_t duration = (value & MC_ANIM_SPLASH_DURATION_MASK) >> MC_ANIM_SPLASH_DURATION_SHIFT;
             uint8_t index = ((value & MC_ANIM_SPLASH_INDEX_MASK) >> MC_ANIM_SPLASH_INDEX_SHIFT) |
@@ -307,7 +300,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mchbt_char.getUUID()) && param->write.len == MC_HOURLY_BRIGHTNESS_LEN)
+        if(pCharacteristic == _mchbt_char && write_len == MC_HOURLY_BRIGHTNESS_LEN)
         {
             if (_set_hourly_brightness_on_ble_write == nullptr)
             {
@@ -319,7 +312,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_hourly_brightness_on_ble_write(...)...");
             #endif
 
-            _set_hourly_brightness_on_ble_write(param->write.value, param->write.len);
+            _set_hourly_brightness_on_ble_write(write_value, write_len);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -328,9 +321,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if ((pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) ||
-             pCharacteristic->getUUID().equals(_mctona_char.getUUID())) &&
-            param->write.len == 2)
+        if ((pCharacteristic == _mctofa_char ||
+             pCharacteristic == _mctona_char) &&
+            write_len == 2)
         {
             if (_set_alarm_on_ble_write == nullptr)
             {
@@ -338,20 +331,20 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
                 return;
             }
 
-            uint16_t result = ((uint16_t)(param->write.value[1]) << 8) + param->write.value[0];
+            uint16_t result = ((uint16_t)(write_value[1]) << 8) + write_value[0];
             
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, 
                 "BLE::onWrite for alarm: Bytes: h = %02x l = %02x, int16_t result = %d", 
-                param->write.value[1],
-                param->write.value[0],
+                write_value[1],
+                write_value[0],
                 result);
             #endif
            
             bool active = (result & BLE_ALARM_IS_ACTIVE_MASK) > 0;
             uint8_t hours = (result & BLE_ALARM_TOTAL_MINUTES_MASK) / 60;
             uint8_t minutes = (result & BLE_ALARM_TOTAL_MINUTES_MASK) % 60;
-            ble_alarm_index_t index = pCharacteristic->getUUID().equals(_mctofa_char.getUUID())
+            ble_alarm_index_t index = pCharacteristic == _mctofa_char
                 ? ble_alarm_index_off
                 : ble_alarm_index_on;
 
@@ -368,7 +361,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if (pCharacteristic->getUUID().equals(_mctao_char.getUUID()))
+        if (pCharacteristic == _mctao_char)
         {
             if (_set_rtc_aging_offset_ble_write == nullptr)
             {
@@ -377,10 +370,10 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             }
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-            ESP_LOGD(TAG, "BLE::onWrite for RTC aging offset: Byte: %02x", param->write.value[0]);
+            ESP_LOGD(TAG, "BLE::onWrite for RTC aging offset: Byte: %02x", write_value[0]);
             #endif
 
-            int8_t result = (int8_t)param->write.value[0];
+            int8_t result = (int8_t)write_value[0];
             
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "BLE::onWrite for RTC aging offset: = %d", result);
@@ -396,7 +389,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcotac_char.getUUID())) {
+        if(pCharacteristic == _mcotac_char) {
             if (_set_ota_control_ble_write == nullptr)
             {
                 ESP_LOGE(TAG, "Error: callback _set_ota_control_ble_write is nullptr.");
@@ -407,7 +400,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_ota_control_ble_write()...");
             #endif
 
-            _set_ota_control_ble_write(param->write.value, param->write.len);
+            _set_ota_control_ble_write(write_value, write_len);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -416,7 +409,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcotad_char.getUUID())) {
+        if(pCharacteristic == _mcotad_char) {
             if (_set_ota_data_ble_write == nullptr)
             {
                 ESP_LOGE(TAG, "Error: callback _set_ota_data_ble_write is nullptr.");
@@ -429,7 +422,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             ESP_LOGD(TAG, "Calling callback _set_ota_data_ble_write()...");
             #endif
             
-            _set_ota_data_ble_write(param->write.value, param->write.len);
+            _set_ota_data_ble_write(write_value, write_len);
 
             #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
             ESP_LOGD(TAG, "OK");
@@ -439,9 +432,9 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         }
     }
 
-    void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param)
+    void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override
     {
-        if(pCharacteristic->getUUID().equals(_mctnc_char.getUUID()))
+        if(pCharacteristic == _mctnc_char)
         {
             bool show = _get_show_on_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(show ? 1U : 0U) };
@@ -449,7 +442,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcabe_char.getUUID()))
+        if(pCharacteristic == _mcabe_char)
         {
             bool enable_auto_brightness = _get_auto_bright_en_on_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(enable_auto_brightness ? 1U : 0U) };
@@ -457,7 +450,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcmbv_char.getUUID()))
+        if(pCharacteristic == _mcmbv_char)
         {
             uint8_t manual_brightness_value = _get_manual_bright_val_on_ble_read();
             uint8_t data_val[1] = { manual_brightness_value };
@@ -465,7 +458,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcco_char.getUUID()))
+        if(pCharacteristic == _mcco_char)
         {
             bool use_rrbbgg = _get_color_order_on_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(use_rrbbgg ? 1U : 0U) };
@@ -473,7 +466,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mcas_char.getUUID()))
+        if(pCharacteristic == _mcas_char)
         {
             uint8_t mode = 0;
             uint8_t duration = 0;
@@ -491,7 +484,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mchbt_char.getUUID()))
+        if(pCharacteristic == _mchbt_char)
         {
             uint8_t table[MC_HOURLY_BRIGHTNESS_LEN];
             _get_hourly_brightness_on_ble_read(table);
@@ -499,10 +492,10 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mctofa_char.getUUID()) ||
-           pCharacteristic->getUUID().equals(_mctona_char.getUUID()))
+        if(pCharacteristic == _mctofa_char ||
+           pCharacteristic == _mctona_char)
         {
-            ble_alarm_index_t index = pCharacteristic->getUUID().equals(_mctofa_char.getUUID())
+            ble_alarm_index_t index = pCharacteristic == _mctofa_char
                 ? ble_alarm_index_off
                 : ble_alarm_index_on;
             uint8_t hours;
@@ -516,7 +509,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mctt_char.getUUID()))
+        if(pCharacteristic == _mctt_char)
         {
             int8_t temperature = _get_rtc_temperature_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(temperature) };
@@ -524,7 +517,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
             return;
         }
 
-        if(pCharacteristic->getUUID().equals(_mctao_char.getUUID()))
+        if(pCharacteristic == _mctao_char)
         {
             int8_t aging_offset = _get_rtc_aging_offset_ble_read();
             uint8_t data_val[1] = { static_cast<uint8_t>(aging_offset) };
@@ -595,131 +588,110 @@ void ble_init(
 
     // Create the BLE Device
     ESP_LOGI(TAG, "Initialize BLE device '%s'...", BLE_SERVER_NAME);
-    BLEDevice::init(BLE_SERVER_NAME);
+    NimBLEDevice::init(BLE_SERVER_NAME);
     ESP_LOGI(TAG, "OK (BLE device initialized)");
 
     ESP_LOGI(TAG, "Set MTU to '%d'...", BLE_DEVICE_MTU);
-    BLEDevice::setMTU(BLE_DEVICE_MTU);
-    ESP_LOGI(TAG, "OK (actual MTU value now: %d)", BLEDevice::getMTU());
+    NimBLEDevice::setMTU(BLE_DEVICE_MTU);
+    ESP_LOGI(TAG, "OK (actual MTU value now: %d)", NimBLEDevice::getMTU());
     
     // Create the BLE Server
     ESP_LOGI(TAG, "Create BLE server...");
-    BLEServer *pServer = BLEDevice::createServer();
+    NimBLEServer *pServer = NimBLEDevice::createServer();
     _pServer = pServer;
     pServer->setCallbacks(&_myServerCallbacks);
+    // start_advertising() is called from onDisconnect() instead, as with the Bluedroid stack before
+    pServer->advertiseOnDisconnect(false);
     ESP_LOGI(TAG, "OK (BLE server created)");
 
     ESP_LOGI(TAG, "Create primary service...");
-    // GATT handle budget: 1 for the service declaration + 2 per characteristic (declaration and value)
-    // + 1 per descriptor. With 17 characteristics and 4 BLE2902 descriptors that is 1 + 34 + 4 = 39.
-    // Keep spare handles here: once the budget is exhausted the stack silently stops handing out
-    // handles, and the characteristics/descriptors at the end of the table stop working.
-    BLEService *bleService = pServer->createService(BLEUUID(MC_SERVICE_UUID), 44U, 0U);
-    ESP_LOGI(TAG, "OK (primary service '%s' created)", bleService->toString().c_str());
+    NimBLEService *bleService = pServer->createService(MC_SERVICE_UUID);
+    ESP_LOGI(TAG, "OK (primary service '%s' created)", bleService->getUUID().toString().c_str());
+
+    const uint32_t RW = NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE;
 
     ESP_LOGI(TAG, "Add MatrixClock Time characteristic...");
-    bleService->addCharacteristic(&_mct_char);
-    _mct_char.addDescriptor(new BLE2902());
-    _mct_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mct_char.toString().c_str());
+    _mct_char = bleService->createCharacteristic(MC_TIME_CHAR_UUID, RW | NIMBLE_PROPERTY::NOTIFY);
+    _mct_char->setCallbacks(&_myCharacteristicCallbacks);
     
     ESP_LOGI(TAG, "Add MatrixClock Time String characteristic...");
-    bleService->addCharacteristic(&_mcts_char);
-    _mcts_char.addDescriptor(new BLE2902());
-    ESP_LOGI(TAG,  "OK: %s", _mcts_char.toString().c_str());
+    _mcts_char = bleService->createCharacteristic(MC_TIME_STR_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
 
     ESP_LOGI(TAG, "Add MatrixClock Turn Off Alarm characteristic...");
-    bleService->addCharacteristic(&_mctofa_char);
-    _mctofa_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mctofa_char.toString().c_str());
+    _mctofa_char = bleService->createCharacteristic(MC_TURN_OFF_ALARM_CHAR_UUID, RW);
+    _mctofa_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Turn On Alarm characteristic...");
-    bleService->addCharacteristic(&_mctona_char);
-    _mctona_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mctona_char.toString().c_str());
+    _mctona_char = bleService->createCharacteristic(MC_TURN_ON_ALARM_CHAR_UUID, RW);
+    _mctona_char->setCallbacks(&_myCharacteristicCallbacks);
     
     ESP_LOGI(TAG, "Add MatrixClock Turn On/Off Control characteristic...");
-    bleService->addCharacteristic(&_mctnc_char);
-    _mctnc_char.addDescriptor(new BLE2902());
-    _mctnc_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mctnc_char.toString().c_str());
+    _mctnc_char = bleService->createCharacteristic(MC_TURN_ON_CONTROL_CHAR_UUID, RW | NIMBLE_PROPERTY::NOTIFY);
+    _mctnc_char->setCallbacks(&_myCharacteristicCallbacks);
 
-    // Add MatrixClock Turn On Auto Brightness Control characteristic
     ESP_LOGI(TAG, "Add MatrixClock Turn On Auto Brightness characteristic...");
-    bleService->addCharacteristic(&_mcabe_char);
-    _mcabe_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcabe_char.toString().c_str());
+    _mcabe_char = bleService->createCharacteristic(MC_AUTO_BRIGHT_ENABLE_CHAR_UUID, RW);
+    _mcabe_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Manual Brightness Value characteristic...");
-    bleService->addCharacteristic(&_mcmbv_char);
-    _mcmbv_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcmbv_char.toString().c_str());
+    _mcmbv_char = bleService->createCharacteristic(MC_MANUAL_BRIGHT_VAL_CHAR_UUID, RW);
+    _mcmbv_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Color Order characteristic...");
-    bleService->addCharacteristic(&_mcco_char);
-    _mcco_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcco_char.toString().c_str());
+    _mcco_char = bleService->createCharacteristic(MC_COLOR_ORDER_CHAR_UUID, RW);
+    _mcco_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Animation Splash characteristic...");
-    bleService->addCharacteristic(&_mcas_char);
-    _mcas_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcas_char.toString().c_str());
+    _mcas_char = bleService->createCharacteristic(MC_ANIMATION_SPLASH_CHAR_UUID, RW);
+    _mcas_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Hourly Brightness Schedule characteristic...");
-    bleService->addCharacteristic(&_mchbt_char);
-    _mchbt_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mchbt_char.toString().c_str());
+    _mchbt_char = bleService->createCharacteristic(MC_HOURLY_BRIGHTNESS_CHAR_UUID, RW);
+    _mchbt_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock RTC Temperature Value characteristic...");
-    bleService->addCharacteristic(&_mctt_char);
-    _mctt_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mctt_char.toString().c_str());
+    _mctt_char = bleService->createCharacteristic(MC_TEMPERATURE_CHAR_UUID, NIMBLE_PROPERTY::READ);
+    _mctt_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock RTC Aging Offset Value characteristic...");
-    bleService->addCharacteristic(&_mctao_char);
-    _mctao_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mctao_char.toString().c_str());
+    _mctao_char = bleService->createCharacteristic(MC_AGING_OFFSET_CHAR_UUID, RW);
+    _mctao_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Flash Size characteristic...");
-    bleService->addCharacteristic(&_mcfs_char);
+    _mcfs_char = bleService->createCharacteristic(MC_FLASH_SIZE_CHAR_UUID, NIMBLE_PROPERTY::READ);
     // Physical flash chip size in whole MB, read from the chip's JEDEC id at boot (constant for the
     // power-on session), so the value is set once here rather than via an onRead callback.
     uint8_t flash_size_mb = (uint8_t)(ESP.getFlashChipSize() >> 20);
-    _mcfs_char.setValue(&flash_size_mb, sizeof(flash_size_mb));
-    ESP_LOGI(TAG, "OK: %s (flash %u MB)", _mcfs_char.toString().c_str(), flash_size_mb);
+    _mcfs_char->setValue(&flash_size_mb, sizeof(flash_size_mb));
+    ESP_LOGI(TAG, "OK (flash %u MB)", flash_size_mb);
 
     ESP_LOGI(TAG, "Add MatrixClock Animation Count characteristic...");
-    bleService->addCharacteristic(&_mcac_char);
+    _mcac_char = bleService->createCharacteristic(MC_ANIMATION_COUNT_CHAR_UUID, NIMBLE_PROPERTY::READ);
     // Value comes from the matrix animation registry, which ble.cpp can't include; main.cpp pushes
     // it in via ble_set_animation_count() at boot. Seed with 0 until then.
     uint8_t animation_count_seed = 0;
-    _mcac_char.setValue(&animation_count_seed, sizeof(animation_count_seed));
-    ESP_LOGI(TAG, "OK: %s", _mcac_char.toString().c_str());
+    _mcac_char->setValue(&animation_count_seed, sizeof(animation_count_seed));
 
     ESP_LOGI(TAG, "Add MatrixClock Firmware Version characteristic...");
-    bleService->addCharacteristic(&_mcfv_char);
-    _mcfv_char.addDescriptor(new BLE2902());
-    ESP_LOGI(TAG, "OK: %s", _mcfv_char.toString().c_str());
+    _mcfv_char = bleService->createCharacteristic(MC_VERSION_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    // Set right away, not only on connect: a read may come before onConnect() has run
+    _mcfv_char->setValue(_get_fw_ver_ble_read());
 
     ESP_LOGI(TAG, "Add MatrixClock OTA Control characteristic...");
-    bleService->addCharacteristic(&_mcotac_char);
-    _mcotac_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcotac_char.toString().c_str());
+    _mcotac_char = bleService->createCharacteristic(MC_OTA_CONTROL_CHAR_UUID, NIMBLE_PROPERTY::WRITE);
+    _mcotac_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock OTA Data characteristic...");
-    bleService->addCharacteristic(&_mcotad_char);
-    uint8_t init_buffer[BLE_OTA_DATA_BUFFER] = {0};
-    _mcotad_char.setValue(init_buffer, sizeof(init_buffer));
-    _mcotad_char.setCallbacks(&_myCharacteristicCallbacks);
-    ESP_LOGI(TAG, "OK: %s", _mcotad_char.toString().c_str());
+    _mcotad_char = bleService->createCharacteristic(MC_OTA_DATA_CHAR_UUID, NIMBLE_PROPERTY::WRITE, BLE_OTA_DATA_BUFFER);
+    _mcotad_char->setCallbacks(&_myCharacteristicCallbacks);
 
-    // Start the service
-    ESP_LOGI(TAG, "bleService->start()...");
-    bleService->start();
-    ESP_LOGI(TAG, "OK (bleService successfully started)");
+    // Start the server (registers the service with the stack)
+    ESP_LOGI(TAG, "pServer->start()...");
+    pServer->start();
+    ESP_LOGI(TAG, "OK (BLE server successfully started)");
 
     // Start advertising
-    start_advertising(pServer);
+    start_advertising();
 }
 
 void ble_update_rtc_time(struct tm *dt)
@@ -737,31 +709,31 @@ void ble_update_rtc_time(struct tm *dt)
             dt->tm_sec);
         
         _mcts_char_value.assign(_mcts_char_buffer, sizeof(_mcts_char_buffer));
-        _mcts_char.setValue(_mcts_char_value);
-        _mcts_char.notify();
+        _mcts_char->setValue(_mcts_char_value);
+        _mcts_char->notify();
 
         _mct_char_value = (uint32_t)mktime(dt);
-        _mct_char.setValue(_mct_char_value);
-        _mct_char.notify();
+        _mct_char->setValue(_mct_char_value);
+        _mct_char->notify();
     }
 }
 
 void ble_update_firmware_version()
 {
     std::string version = _get_fw_ver_ble_read();
-    _mcfv_char.setValue(version);
-    _mcfv_char.notify();
+    _mcfv_char->setValue(version);
+    _mcfv_char->notify();
 }
 
 void ble_set_animation_count(uint8_t count)
 {
-    _mcac_char.setValue(&count, sizeof(count));
+    _mcac_char->setValue(&count, sizeof(count));
     ESP_LOGI(TAG, "Animation count characteristic set to %u", count);
 }
 
 void ble_request_ota_conn_params()
 {
-    if (!_pServer || !_device_connected || !_have_peer_bda) {
+    if (!_pServer || !_device_connected || !_have_conn_handle) {
         ESP_LOGW(TAG, "ble_request_ota_conn_params: no active connection, skipping");
         return;
     }
@@ -774,22 +746,31 @@ void ble_request_ota_conn_params()
     // between flash writes) plus a long 6 s supervision timeout, so those flash-write stalls can't
     // reach the drop threshold. Interval is in 1.25 ms units, timeout in 10 ms units:
     //   min 15 ms (12), max 30 ms (24), latency 0, supervision timeout 6000 ms (600).
-    _pServer->updateConnParams(_peer_bda, 12, 24, 0, 600);
+    _pServer->updateConnParams(_conn_handle, 12, 24, 0, 600);
     ESP_LOGI(TAG, "Requested OTA connection params (15-30 ms interval, 6 s supervision timeout)");
 }
 
 void ble_update_matrix_show(const bool show)
 {
     uint8_t value[1] = { (uint8_t)(show ? 0x01 : 0x00) };
-    _mctnc_char.setValue(value, sizeof(value));
-    _mctnc_char.notify();
+    _mctnc_char->setValue(value, sizeof(value));
+    _mctnc_char->notify();
 }
 
-void start_advertising(BLEServer* pServer)
+void start_advertising()
 {
     ESP_LOGI(TAG, "Start advertising...");
-    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(MC_SERVICE_UUID);
-    pServer->getAdvertising()->start();
+    // The 128-bit service UUID (the app scans by it) fills most of the 31-byte advertising packet,
+    // so the name goes into the scan response, as the Bluedroid stack did.
+    NimBLEAdvertisementData adv_data;
+    adv_data.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+    adv_data.addServiceUUID(NimBLEUUID(MC_SERVICE_UUID));
+    NimBLEAdvertisementData scan_data;
+    scan_data.setName(BLE_SERVER_NAME);
+
+    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->setAdvertisementData(adv_data);
+    pAdvertising->setScanResponseData(scan_data);
+    pAdvertising->start();
     ESP_LOGI(TAG, "OK (advertising started)");
 }
