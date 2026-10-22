@@ -22,6 +22,9 @@
 #include "touch_sensor.h"
 #include "version.h"
 #include "ota.h"
+#include "net_settings.h"
+#include "wifi.h"
+#include "updater.h"
 
 #define RTC_SPEED   (400000U)
 #define RTC_SCL     (26U)
@@ -45,6 +48,14 @@ static unsigned long _10ms_loop_due = 0;
 static bool _ota_failed = false;
 static unsigned long _ota_failed_at = 0;
 static bool _firmware_confirmed = false;
+
+// The current OTA update comes from the internet (updater), not from the app over BLE
+static volatile bool _ota_from_internet = false;
+
+// Set by the WiFi task after an SNTP sync: loop() copies the system time into the RTC at the next
+// second boundary
+static volatile bool _net_time_pending = false;
+static time_t _net_time_last_sec = 0;
 
 static struct tm _rtc_dt;
 static struct tm _matrix_dt;
@@ -72,6 +83,9 @@ void main_brightness_schedule_init();
 void main_matrix_init();
 void main_brightness_schedule_flush();
 void main_firmware_confirm();
+void main_network_init();
+void main_net_settings_flush();
+void main_net_time_apply();
 
 void ota_progress_callback(size_t received, size_t total);
 void ota_status_callback(const char* status, bool is_error);
@@ -89,6 +103,8 @@ void main_ota_init() {
 
 void main_clock_init() {
     main_rtc_init();
+    if (!net_settings_init())
+        ESP_LOGE(TAG, "Error: net_settings_init(). The network settings are defaults until reboot.");
     main_ble_init();
     delay(500);
     main_brightness_schedule_init();
@@ -104,6 +120,7 @@ void setup()
     // both up by now (main_clock_init()).
     ble_set_animation_count(matrix_get_animation_count());
     touchSensor.Init();
+    main_network_init();
     ESP_LOGI(TAG, "Firmware version: %s", ota_get_current_version());
 }
 
@@ -131,6 +148,8 @@ void loop()
         }
 
         main_brightness_schedule_flush();
+        main_net_settings_flush();
+        main_net_time_apply();
 
         if (!_firmware_confirmed && now >= FIRMWARE_CONFIRM_DELAY_MS)
             main_firmware_confirm();
@@ -543,7 +562,9 @@ void set_ota_control_ble_write(const uint8_t* data, size_t length)
                     (data[3] << 16) | 
                     (data[4] << 24);
 
-                // Disable all ISRs but BLE
+                // Disable all ISRs but BLE, and WiFi with them: the radio is BLE's for the transfer
+                _ota_from_internet = false;
+                wifi_pause(true);
                 main_ota_init();
 
                 // Ask the phone for a long supervision timeout so the fast firmware stream's
@@ -609,8 +630,9 @@ void ota_progress_callback(size_t received, size_t total) {
     // over BLE (this "install" phase, which is all the device sees) and finally reboots/verifies,
     // and maps that onto one 0-100% bar as 2..5% (download) + 5..99% (install) + 99..100% (reboot).
     // See performCompleteUpdate()/installFirmwareInternal() in the Android app's FirmwareRepository.kt.
+    // An update from the internet is all done by the clock: its progress is the whole bar.
     float raw_percent = (total > 0) ? (received * 100.0f) / total : 0.0f;
-    float overall_percent = 5.0f + raw_percent * 0.94f;
+    float overall_percent = _ota_from_internet ? raw_percent : 5.0f + raw_percent * 0.94f;
     matrix_set_ota_progress(overall_percent);
 
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
@@ -644,8 +666,185 @@ void ota_completion_callback(bool success, const char* message) {
     }
 }
 
+
+// ---------------------------------------------------------------- network: WiFi, time, updates
+
+// Writes the network settings received over BLE into NVS, if there are pending ones (see
+// main_brightness_schedule_flush() about the display timers).
+void main_net_settings_flush()
+{
+    if (!net_settings_is_dirty())
+        return;
+
+    matrix_pause_timers();
+    bool saved = net_settings_flush();
+    matrix_resume_timers();
+
+    if (!saved)
+        ESP_LOGE(TAG, "Error: main_net_settings_flush() > net_settings_flush()");
+}
+
+// SNTP has set the system time (UTC, local via TZ): copy it into the RTC and the matrix exactly when
+// a new second starts, so the RTC's 1 Hz output ticks in step with it (within one 10 ms loop tick).
+void main_net_time_apply()
+{
+    if (!_net_time_pending)
+        return;
+
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    if (_net_time_last_sec == 0)
+    {
+        _net_time_last_sec = tv.tv_sec;
+        return;
+    }
+    if (tv.tv_sec == _net_time_last_sec)
+        return;
+
+    _net_time_pending = false;
+    _net_time_last_sec = 0;
+
+    struct tm local;
+    localtime_r(&tv.tv_sec, &local);
+    if (rtc.setTime(&local))
+    {
+        matrix_set_time(&local, true);
+        log_tm(TAG, "Time synced from the internet: ", &local);
+    }
+    else
+        ESP_LOGE(TAG, "Error: main_net_time_apply() > rtc.setTime()");
+}
+
+// WiFi task callbacks
+void wifi_status_changed()
+{
+    ble_update_wifi_status();
+}
+
+void wifi_scan_changed()
+{
+    ble_update_wifi_scan();
+}
+
+void wifi_time_synced(time_t utc)
+{
+    _net_time_last_sec = 0;
+    _net_time_pending = true;
+}
+
+// Updater callbacks (WiFi task)
+void update_info_changed()
+{
+    ble_update_update_info();
+}
+
+void update_ota_status_changed(uint8_t state, uint8_t error, uint32_t received, uint32_t total)
+{
+    ble_update_ota_status(state, error, received, total);
+}
+
+bool update_ota_begin(size_t firmware_size)
+{
+    _ota_from_internet = true;
+    main_ota_init();
+    if (ota_begin(
+        firmware_size,
+        ota_progress_callback,
+        ota_status_callback,
+        ota_completion_callback,
+        matrix_pause_timers,
+        matrix_resume_timers))
+        return true;
+
+    // Nothing was written: leave the OTA screen through the usual failure path (reboot in 10 s)
+    ota_completion_callback(false, "OTA start failed");
+    return false;
+}
+
+// BLE network characteristics callbacks (BLE stack's task)
+void net_get_tz(char *tz_out)
+{
+    net_settings_t settings;
+    net_settings_get(&settings);
+    strcpy(tz_out, settings.tz);
+}
+
+bool net_set_tz(const char *tz)
+{
+    if (!net_settings_set_tz(tz))
+        return false;
+    // Applied right away, but without wifi_apply_settings(): the app writes the time zone on every
+    // connection, which must not start a WiFi session each time
+    setenv("TZ", tz, 1);
+    tzset();
+    return true;
+}
+
+void net_get_wifi(uint8_t *mode, uint8_t *period_hours, char *ssid_out, bool *password_stored)
+{
+    net_settings_t settings;
+    net_settings_get(&settings);
+    *mode = settings.mode;
+    *period_hours = settings.period_hours;
+    strcpy(ssid_out, settings.ssid);
+    *password_stored = settings.password[0] != 0;
+}
+
+bool net_set_wifi(uint8_t mode, uint8_t period_hours, const char *ssid, const char *password)
+{
+    if (!net_settings_set_wifi(mode, period_hours, ssid, password))
+        return false;
+    wifi_apply_settings();
+    return true;
+}
+
+void net_command(uint8_t command)
+{
+    switch (command)
+    {
+        case 0x01: // sync time now
+            if (!wifi_request_session())
+                ESP_LOGW(TAG, "Time sync requested, but WiFi is off");
+            break;
+        case 0x02: // check for an update
+            updater_request_check();
+            break;
+        case 0x03: // install the update
+            updater_request_install();
+            break;
+        case 0x04: // scan for networks
+            if (!wifi_scan_start())
+                ESP_LOGW(TAG, "WiFi scan not possible now");
+            break;
+        default:
+            ESP_LOGE(TAG, "Error: unknown command 0x%02x", command);
+            break;
+    }
+}
+
+static const ble_network_callbacks_t _network_callbacks = {
+    .get_tz = net_get_tz,
+    .set_tz = net_set_tz,
+    .get_wifi = net_get_wifi,
+    .set_wifi = net_set_wifi,
+    .get_wifi_status = wifi_get_status,
+    .get_update_info = updater_get_info,
+    .command = net_command,
+};
+
+// Starts WiFi and the updater; BLE has the network characteristics (main_ble_init())
+void main_network_init()
+{
+    updater_init(update_info_changed, update_ota_status_changed, update_ota_begin);
+    if (!wifi_init(wifi_status_changed, wifi_scan_changed, wifi_time_synced))
+        ESP_LOGE(TAG, "Error: wifi_init(). No WiFi until reboot.");
+    else
+        ESP_LOGI(TAG, "wifi_init(): OK");
+}
+
 void main_ble_init()
 {
+    ble_set_network_callbacks(&_network_callbacks);
     ble_init(
         &set_rtc_time_on_ble_write,
         &set_matrix_show_on_ble_write,

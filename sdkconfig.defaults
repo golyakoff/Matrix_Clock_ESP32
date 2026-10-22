@@ -27,6 +27,9 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=515
 CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192
 CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
+# Phones pair for the encrypted WiFi settings write (ble.cpp): keep the bonds across reboots, or the
+# phone's bond would no longer match after one
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
 
 # Compile only the Arduino libraries the clock uses (BLE is esp-nimble-cpp, not Arduino's BLE)
 CONFIG_ARDUINO_SELECTIVE_COMPILATION=y
@@ -66,3 +69,18 @@ CONFIG_ARDUINO_SELECTIVE_WiFi=n
 CONFIG_ARDUINO_SELECTIVE_WiFiProv=n
 CONFIG_ARDUINO_SELECTIVE_Wire=y
 CONFIG_ARDUINO_SELECTIVE_Zigbee=n
+
+# WiFi (time sync and updates from the internet) together with BLE
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+# WiFi + BLE + coexistence overflow ESP32's 128 KB IRAM: trade a little WiFi throughput for room
+# (the clock only syncs time and downloads an update now and then)
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+
+# Room in the 4MB build's 1.875 MB app slot (WiFi + TLS + BLE + the animations): only what the clock
+# uses. It is a WiFi client that talks HTTPS to GitHub and nothing else.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n

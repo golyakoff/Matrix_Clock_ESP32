@@ -141,11 +141,12 @@ bool ota_begin(
  *
  * @param data Pointer to the firmware data buffer to be written.
  * @param length Size of the data buffer in bytes.
+ * @param timeout_ms How long to wait for room in the queue.
  * @return true if the chunk was queued successfully.
  * @return false if the chunk was rejected (OTA not active, bad params, or the writer task
  *         isn't draining the queue - e.g. because it's stuck or was never created).
  */
-bool ota_write(uint8_t* data, size_t length) {
+bool ota_write(uint8_t* data, size_t length, uint32_t timeout_ms) {
     if (!_ota_in_progress) {
         ota_emit_status("OTA not started", true);
         return false;
@@ -165,10 +166,10 @@ bool ota_write(uint8_t* data, size_t length) {
     memcpy(item.data, data, length);
     item.length = length;
 
-    // Bounded wait: if the writer task hasn't drained enough of the queue within half a second,
-    // something is seriously wrong (e.g. it crashed) - fail loudly instead of blocking the BLE
-    // stack's own task indefinitely.
-    if (xQueueSend(_write_queue, &item, pdMS_TO_TICKS(500)) != pdTRUE) {
+    // Bounded wait: if the writer task hasn't drained enough of the queue in time, something is
+    // seriously wrong (e.g. it crashed) - fail loudly instead of blocking the caller (the BLE
+    // stack's own task, for a BLE upload) indefinitely.
+    if (xQueueSend(_write_queue, &item, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         ota_emit_status("OTA write queue full - writer task stalled", true);
         ota_abort();
         return false;
@@ -438,7 +439,7 @@ bool ota_validate_firmware() {
         return false;
     }
 
-    ota_emit_status("Firmware validation passed", true);
+    ota_emit_status("Firmware validation passed", false);
     return true;
 }
 

@@ -3,6 +3,8 @@
 
 #include <string>
 #include "time.h"
+#include "wifi.h"
+#include "updater.h"
 
 // BLE server name
 #define BLE_SERVER_NAME                     "Tetris Clock"
@@ -75,6 +77,57 @@
 // ship more than the 4MB build; the app reads this to show exactly the animations the connected
 // clock actually has (rather than assuming a fixed set). Set once at boot via ble_set_animation_count().
 #define MC_ANIMATION_COUNT_CHAR_UUID        "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F6" // M Read
+
+// --- Network characteristics (firmware v2.0.0+). Optional for the app: older firmware lacks them, and
+// the app hides WiFi and the update from the internet then. All integers are little-endian; a "str8"
+// is a length byte followed by that many UTF-8 bytes (no terminating zero).
+
+// POSIX TZ string of the clock's time zone, up to 47 bytes, e.g. "MSK-3" or
+// "CET-1CEST,M3.5.0,M10.5.0/3" (note the inverted sign: UTC+3 is "-3"). The RTC keeps local time;
+// the time zone converts the UTC time from the internet (SNTP) to it, daylight saving time included.
+// The app writes the phone's zone. Default "MSK-3".
+#define MC_TIME_ZONE_CHAR_UUID              "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F7" // O Read, Write
+
+// WiFi settings. Write: u8 mode (0 = off, 1 = periodic: every <period> hours connect, sync time, check
+// for an update, disconnect), u8 period 1..24 hours, str8 SSID (up to 32 bytes), str8 password (up to
+// 64 bytes; length 0xFF = keep the stored one). Writing needs an encrypted link: the phone pairs ("Just
+// Works", no PIN) on the first write. Read: the same, but the password is never returned: its length
+// byte is 0 (no password stored) or 0xFF (a password is stored), followed by no bytes.
+#define MC_WIFI_SETTINGS_CHAR_UUID          "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F8" // O Read, Write (encrypted)
+
+// WiFi status: u8 state (0 = off, also between sessions, 1 = connecting, 2 = connected, 3 = error: wrong
+// password or network not found, kept until the next attempt), u8[4] IPv4 address (zeros if not
+// connected), i8 RSSI dBm (0 if not connected), u32 the last time sync from the internet, UTC seconds
+// (0 if none since boot). Notified on every change.
+#define MC_WIFI_STATUS_CHAR_UUID            "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F9" // O Read, Notify
+
+// WiFi networks the clock hears (2.4 GHz only), for choosing the SSID; the scan is started by Command
+// 0x04. Unique SSIDs, no hidden networks, strongest first, up to 64. Read: one page starting at the
+// selected network (the first one after connecting and after every scan): u8 scan state (0 = not
+// scanned since boot, 1 = scanning, 2 = done, 3 = error), u8 total networks T, u8 index of the first
+// network on this page, u8 networks on this page N, then N x (str8 SSID, i8 RSSI dBm, u8 security:
+// 0 = open, 1 = WEP, 2 = WPA/WPA2/WPA3 personal, 3 = enterprise (unusable), u8 channel). Write: u8 index
+// of the first network of the next page to read. Notify: the 4-byte header (N = 0) when a scan starts
+// and finishes.
+#define MC_WIFI_NETWORKS_CHAR_UUID          "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FA" // O Read, Write, Notify
+
+// Command, write u8: 0x01 = sync time from the internet now, 0x02 = check for a firmware update now
+// (result in Update info), 0x03 = install the firmware update from the internet if a newer one is
+// released (progress in OTA status), 0x04 = scan for WiFi networks (see WiFi networks). 0x01..0x03 need
+// WiFi configured; without it 0x02 reports a failed check and 0x03 an OTA error 8.
+#define MC_COMMAND_CHAR_UUID                "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FB" // O Write
+
+// The last update check from the internet (on every WiFi session and on Command 0x02): u8 state
+// (0 = not checked since boot, 1 = checking, 2 = up to date, 3 = update available, 4 = check failed),
+// str8 the latest released version (empty if never checked), u32 time of the last successful check,
+// UTC seconds (0 if unknown). Notified on every change.
+#define MC_UPDATE_INFO_CHAR_UUID            "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FC" // O Read, Notify
+
+// Progress of a firmware installation from the internet (Command 0x03): u8 state (0 = idle,
+// 1 = downloading and writing, 2 = success: the clock reboots, 3 = error, 4 = checking for an update,
+// 5 = no update available), u8 error (state 3: 1 = busy, 3 = flash write error, 5 = SHA-256 mismatch,
+// 8 = download failed / no WiFi), u32 bytes written, u32 total size. Notified every 4 KB.
+#define MC_OTA_STATUS_CHAR_UUID             "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FD" // O Read, Notify
 
 // Firmware update characteristics
 #define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
@@ -215,6 +268,48 @@ typedef void (*ble_set_ota_control_ble_write_t)(const uint8_t* data, size_t leng
  * @brief Type of a function for a new firmware data upload process when it requested by BLE.
  */
 typedef void (*ble_set_ota_data_ble_write_t)(const uint8_t* data, size_t length);
+
+/**
+ * @brief Callbacks of the network characteristics (time zone, WiFi, update from the internet).
+ *        They are called from the BLE stack's task and must be fast.
+ */
+typedef struct {
+    // Time zone: get into a buffer of at least NET_TZ_MAX_LEN + 1 bytes; set returns false if invalid
+    void (*get_tz)(char *tz_out);
+    bool (*set_tz)(const char *tz);
+    // WiFi settings; password nullptr = keep the stored one. set returns false if invalid.
+    void (*get_wifi)(uint8_t *mode, uint8_t *period_hours, char *ssid_out, bool *password_stored);
+    bool (*set_wifi)(uint8_t mode, uint8_t period_hours, const char *ssid, const char *password);
+    void (*get_wifi_status)(wifi_status_t *status);
+    void (*get_update_info)(update_info_t *info);
+    // Command characteristic (0x01..0x04)
+    void (*command)(uint8_t command);
+} ble_network_callbacks_t;
+
+/**
+ * @brief Enables the network characteristics. Call before ble_init(); without it they are not created.
+ */
+void ble_set_network_callbacks(const ble_network_callbacks_t *callbacks);
+
+/**
+ * @brief Notifies the WiFi status (MC_WIFI_STATUS_CHAR_UUID). Safe from any task.
+ */
+void ble_update_wifi_status();
+
+/**
+ * @brief Notifies a WiFi scan start / end (MC_WIFI_NETWORKS_CHAR_UUID) and resets the page cursor.
+ */
+void ble_update_wifi_scan();
+
+/**
+ * @brief Notifies the update info (MC_UPDATE_INFO_CHAR_UUID). Safe from any task.
+ */
+void ble_update_update_info();
+
+/**
+ * @brief Notifies the progress of an installation from the internet (MC_OTA_STATUS_CHAR_UUID).
+ */
+void ble_update_ota_status(uint8_t state, uint8_t error, uint32_t received, uint32_t total);
 
 /**
  * @brief Initializes the BLE module settings.

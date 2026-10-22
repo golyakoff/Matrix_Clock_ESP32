@@ -13,7 +13,10 @@
 #   tetris-clock_<tag>_V_full.bin         0x0      all of the above merged into one image
 #   flash_V.bat                                    Windows flashing script
 #   tetris-clock_<tag>_V.zip                       the separate images + flash_V.bat
+#   manifest.json                                  the clock's update from the internet
+#                                                  (main/include/updater.h, tools/make_manifest.py)
 # and the release page markdown in $NOTES_FILE (default: release_notes.md).
+# The debug_4mb variant is for local runs only and is not published.
 #
 # Requires: python with esptool >= 5 (`pip install esptool`).
 set -euo pipefail
@@ -28,7 +31,6 @@ BUILD_DATE="$(git log -1 --format=%cI 2>/dev/null || date -Iseconds)"
 
 # variant (build/<variant>, variants/<variant>.defaults) | flash size
 VARIANTS=(
-  "debug_4mb|4MB"
   "release_4mb|4MB"
   "release_16mb|16MB"
 )
@@ -120,6 +122,16 @@ for entry in "${VARIANTS[@]}"; do
     "${PREFIX}_${v}_fw.bin")
 done
 
+# ---------------------------------------------------------------- update manifest
+MANIFEST_ARGS=()
+for entry in "${VARIANTS[@]}"; do
+  IFS='|' read -r v size <<< "$entry"
+  MANIFEST_ARGS+=("$v=$OUT/${PREFIX}_${v}_fw.bin")
+done
+"$PYTHON" "$(dirname "$0")/make_manifest.py" --version "$TAG" \
+  --base-url "https://github.com/golyakoff/Matrix_Clock_ESP32/releases/download/$TAG" \
+  "${MANIFEST_ARGS[@]}" > "$OUT/manifest.json"
+
 # ---------------------------------------------------------------- release page
 P="$PREFIX"
 cat > "$NOTES" <<EOF
@@ -134,14 +146,14 @@ cat > "$NOTES" <<EOF
 |---|---|---|
 | 4MB  | 🚀 Release (optimized)    | \`${P}_release_4mb.zip\` |
 | 16MB | 🚀 Release (optimized)    | \`${P}_release_16mb.zip\` |
-| 4MB  | 🐞 Debug (serial logging) | \`${P}_debug_4mb.zip\` |
 
 Each zip contains everything needed for a first install over USB: the four flash
 images and a ready-to-run \`flash_<variant>.bat\`. Not sure about the flash size?
 \`python -m esptool flash-id\` prints it (\`Detected flash size: ...\`).
 
-Already running the clock? Update over BLE from the Android app instead — it uses
-the \`*_fw.bin\` file and keeps your settings.
+Already running the clock? Update from the Android app instead and keep your settings:
+over BLE (the app sends the \`*_fw.bin\` file), or — firmware v2.0.0 and later with WiFi set
+up — the clock downloads it itself (\`manifest.json\` tells it which file).
 
 ## First install on Windows (from scratch)
 
@@ -181,7 +193,7 @@ python3 -m esptool --chip esp32 --baud 921600 write-flash --flash-mode dio --fla
   0x10000 ${P}_release_16mb_fw.bin
 \`\`\`
 
-For a 4MB board use the \`release_4mb\` (or \`debug_4mb\`) files and \`--flash-size 4MB\`.
+For a 4MB board use the \`release_4mb\` files and \`--flash-size 4MB\`.
 Add \`--port /dev/ttyUSB0\` (Linux) or \`--port /dev/cu.usbserial-XXXX\` (macOS) if the
 port is not detected automatically.
 
@@ -212,9 +224,8 @@ settings are reset — use it for a clean install, not for updates.
 reflash with the \`.bat\` (or the full image).
 
 ## Notes
-- **Debug versions** include serial logging and debug features
-- **Production versions** are optimized for size and performance
 - Use the files of one variant together — don't mix 4MB and 16MB images
+- A build with verbose serial logging (\`debug_4mb\`) can be built from the sources, see the README
 EOF
 
 echo "=== Release assets in $OUT ==="

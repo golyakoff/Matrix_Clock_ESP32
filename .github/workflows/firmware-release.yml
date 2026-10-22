@@ -23,7 +23,6 @@ jobs:
         esp_idf_version: v5.5.6
         target: esp32
         command: >-
-          tools/build.sh debug_4mb &&
           tools/build.sh release_4mb &&
           tools/build.sh release_16mb
 

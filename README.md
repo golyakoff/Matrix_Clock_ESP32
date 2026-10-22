@@ -4,7 +4,8 @@ Firmware for a desk clock built around an ESP32 and an RGB LED matrix panel.
 Digits fall into place and lock in with a small "Tetris block" animation on
 every time change. The device is controlled from a companion Android app
 ([Matrix_Clock_Android](https://github.com/golyakoff/Matrix_Clock_Android))
-over Bluetooth Low Energy (BLE) — no cloud, no Wi-Fi required for normal use.
+over Bluetooth Low Energy (BLE) — no cloud. Wi-Fi is optional (off by default): with it the
+clock syncs its time from the internet and can update its firmware by itself.
 
 ## Hardware
 
@@ -29,7 +30,12 @@ Schematics and datasheets for the hardware are in [docs/](docs/).
   hourly brightness table stored in flash (see [main/include/brightness_schedule.h](main/include/brightness_schedule.h))
 - Touch pad for manual on/off, independent of the alarms
 - RTC temperature and aging-offset read/write over BLE
-- Firmware updates (OTA) pushed from the phone app over BLE, using the
+- Optional Wi-Fi (client only, set up from the app, which picks the network from the ones the
+  clock hears): every 1..24 hours the clock connects, syncs time by SNTP into the RTC (local time
+  from the phone's time zone, daylight saving time included), checks GitHub for a newer firmware
+  and disconnects ([main/wifi.cpp](main/wifi.cpp), [main/updater.cpp](main/updater.cpp))
+- Firmware updates (OTA) pushed from the phone app over BLE, or downloaded by the clock itself
+  over Wi-Fi when the user asks for it in the app (never automatically), using the
   ESP32's A/B (`app0`/`app1`) partition scheme so a bad update can't brick
   the device
 
@@ -48,7 +54,10 @@ main/               Application source (one .cpp/.h pair per module, headers in 
   rtc                 DS3231 driver wrapper, settings packed into RTC alarm registers
   alarm               On/off alarm scheduling logic
   brightness_schedule NVS-backed 24-hour brightness table
-  ota                 BLE-triggered OTA firmware update
+  ota                 OTA firmware writer (BLE upload and the update from the internet)
+  net_settings        NVS-backed Wi-Fi settings and time zone
+  wifi                Wi-Fi client: periodic sessions, SNTP time sync, network scan
+  updater             Firmware update from GitHub releases (manifest.json)
   touch_sensor        Capacitive touch input
   time_helper         Small time/struct tm utilities
   idf_component.yml   Managed components: arduino-esp32, esp-nimble-cpp (exact versions)
@@ -87,7 +96,7 @@ tools/build.sh debug_4mb -p COM4 flash   # any idf.py arguments after the varian
 Variants (see [variants/](variants)):
 - `release_4mb` — optimized release build for 4MB flash boards
 - `release_16mb` — optimized release build for 16MB flash boards
-- `debug_4mb` — debug build with verbose logging, 4MB boards
+- `debug_4mb` — verbose serial logging, 4MB boards; for local runs, not published in releases
 
 A plain `idf.py build` (what the VS Code extension runs) builds for a 4MB board with the common
 defaults. Pick the variant matching your board's flash size — see

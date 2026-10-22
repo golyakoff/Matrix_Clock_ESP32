@@ -1,6 +1,8 @@
+# Verbose serial logs, for local runs and debugging; not published in releases. Optimized for size
+# like the release builds (with -Og it no longer fits the 4MB app slot); the display code stays -O2.
 CONFIG_MC_FLASH_MB=4
 CONFIG_MC_BUILD_VARIANT="debug_4mb"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/4MB.csv"
-CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y

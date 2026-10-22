@@ -5,6 +5,7 @@
 
 #include "time_helper.h"
 #include "ble.h"
+#include "net_settings.h"
 
 #define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
 #define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
@@ -45,6 +46,15 @@ static NimBLECharacteristic* _mcac_char = nullptr;
 static NimBLECharacteristic* _mcfv_char = nullptr;
 static NimBLECharacteristic* _mcotac_char = nullptr;
 static NimBLECharacteristic* _mcotad_char = nullptr;
+
+// Network characteristics, created only when ble_set_network_callbacks() was called
+static NimBLECharacteristic* _mctz_char = nullptr;
+static NimBLECharacteristic* _mcws_char = nullptr;
+static NimBLECharacteristic* _mcwst_char = nullptr;
+static NimBLECharacteristic* _mcwn_char = nullptr;
+static NimBLECharacteristic* _mccmd_char = nullptr;
+static NimBLECharacteristic* _mcui_char = nullptr;
+static NimBLECharacteristic* _mcos_char = nullptr;
 
 // Variables
 static bool _device_connected = false;
@@ -528,6 +538,268 @@ class MyCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
 };
 MyCharacteristicCallbacks _myCharacteristicCallbacks;
 
+// ---------------------------------------------------------------- network characteristics
+
+#define MC_STR8_KEEP                   (0xFFU) // password length byte: keep the stored one / one is stored
+#define MC_WIFI_STATUS_LEN             (10U)
+#define MC_OTA_STATUS_LEN              (10U)
+#define MC_WIFI_NETWORKS_HEADER_LEN    (4U)
+#define MC_WIFI_NETWORKS_PAGE_MAX      (BLE_OTA_DATA_BUFFER) // MTU - 3: what a read returns in one go
+
+static const ble_network_callbacks_t* _network_cb = nullptr;
+static uint8_t _networks_cursor = 0; // the first network of the page the next read returns
+static uint8_t _ota_status_value[MC_OTA_STATUS_LEN] = { 0 };
+
+static void put_u32(uint8_t* p, uint32_t v)
+{
+    p[0] = v & 0xFF;
+    p[1] = (v >> 8) & 0xFF;
+    p[2] = (v >> 16) & 0xFF;
+    p[3] = (v >> 24) & 0xFF;
+}
+
+static void set_wifi_settings_value()
+{
+    uint8_t mode = 0;
+    uint8_t period = 0;
+    char ssid[NET_SSID_MAX_LEN + 1] = { 0 };
+    bool password_stored = false;
+    _network_cb->get_wifi(&mode, &period, ssid, &password_stored);
+
+    uint8_t ssid_len = (uint8_t)strnlen(ssid, NET_SSID_MAX_LEN);
+    uint8_t value[2 + 1 + NET_SSID_MAX_LEN + 1];
+    size_t len = 0;
+    value[len++] = mode;
+    value[len++] = period;
+    value[len++] = ssid_len;
+    memcpy(value + len, ssid, ssid_len);
+    len += ssid_len;
+    value[len++] = password_stored ? MC_STR8_KEEP : 0;
+    _mcws_char->setValue(value, len);
+}
+
+// Parses a WiFi settings write, see MC_WIFI_SETTINGS_CHAR_UUID
+static bool write_wifi_settings(const uint8_t* data, size_t len)
+{
+    if (len < 4)
+        return false;
+    uint8_t mode = data[0];
+    uint8_t period = data[1];
+    uint8_t ssid_len = data[2];
+    if (ssid_len > NET_SSID_MAX_LEN || len < 3U + ssid_len + 1U)
+        return false;
+    char ssid[NET_SSID_MAX_LEN + 1] = { 0 };
+    memcpy(ssid, data + 3, ssid_len);
+
+    size_t pos = 3U + ssid_len;
+    uint8_t password_len = data[pos++];
+    char password[NET_PASSWORD_MAX_LEN + 1] = { 0 };
+    if (password_len == MC_STR8_KEEP)
+    {
+        if (len != pos)
+            return false;
+        return _network_cb->set_wifi(mode, period, ssid, nullptr);
+    }
+    if (password_len > NET_PASSWORD_MAX_LEN || len != pos + password_len)
+        return false;
+    memcpy(password, data + pos, password_len);
+    return _network_cb->set_wifi(mode, period, ssid, password);
+}
+
+static void set_wifi_status_value()
+{
+    wifi_status_t status;
+    _network_cb->get_wifi_status(&status);
+    uint8_t value[MC_WIFI_STATUS_LEN];
+    value[0] = status.state;
+    memcpy(value + 1, status.ip, 4);
+    value[5] = (uint8_t)status.rssi;
+    put_u32(value + 6, status.synced_at);
+    _mcwst_char->setValue(value, sizeof(value));
+}
+
+// One page of the scan result starting at _networks_cursor, see MC_WIFI_NETWORKS_CHAR_UUID
+static void set_wifi_networks_value(bool header_only)
+{
+    static uint8_t value[MC_WIFI_NETWORKS_PAGE_MAX];
+    const wifi_network_t* networks = nullptr;
+    size_t count = 0;
+    wifi_scan_state_t state = wifi_scan_lock(&networks, &count);
+    if (state != wifi_scan_done)
+        count = 0;
+
+    size_t len = MC_WIFI_NETWORKS_HEADER_LEN;
+    uint8_t first = _networks_cursor < count ? _networks_cursor : (uint8_t)count;
+    uint8_t on_page = 0;
+    for (size_t i = first; !header_only && i < count; i++)
+    {
+        uint8_t ssid_len = (uint8_t)strnlen(networks[i].ssid, sizeof(networks[i].ssid) - 1);
+        if (len + 1 + ssid_len + 3 > sizeof(value))
+            break;
+        value[len++] = ssid_len;
+        memcpy(value + len, networks[i].ssid, ssid_len);
+        len += ssid_len;
+        value[len++] = (uint8_t)networks[i].rssi;
+        value[len++] = networks[i].security;
+        value[len++] = networks[i].channel;
+        on_page++;
+    }
+
+    value[0] = state;
+    value[1] = (uint8_t)count;
+    value[2] = first;
+    value[3] = on_page;
+    _mcwn_char->setValue(value, len);
+    // Unlocked only now: the BLE task (reads) and the WiFi task (scan notifications) share value[]
+    wifi_scan_unlock();
+}
+
+static void set_update_info_value()
+{
+    update_info_t info;
+    _network_cb->get_update_info(&info);
+    uint8_t version_len = (uint8_t)strnlen(info.version, sizeof(info.version) - 1);
+    uint8_t value[1 + 1 + sizeof(info.version) + 4];
+    size_t len = 0;
+    value[len++] = info.state;
+    value[len++] = version_len;
+    memcpy(value + len, info.version, version_len);
+    len += version_len;
+    put_u32(value + len, info.checked_at);
+    len += 4;
+    _mcui_char->setValue(value, len);
+}
+
+class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        NimBLEAttValue value = pCharacteristic->getValue();
+        const uint8_t* data = value.data();
+        const size_t len = value.size();
+
+        if (pCharacteristic == _mctz_char)
+        {
+            char tz[NET_TZ_MAX_LEN + 1] = { 0 };
+            if (len == 0 || len > NET_TZ_MAX_LEN || !_network_cb->set_tz((const char*)memcpy(tz, data, len)))
+                ESP_LOGE(TAG, "Error: invalid time zone (%d bytes)", (int)len);
+            return;
+        }
+
+        if (pCharacteristic == _mcws_char)
+        {
+            if (!write_wifi_settings(data, len))
+                ESP_LOGE(TAG, "Error: invalid WiFi settings (%d bytes)", (int)len);
+            return;
+        }
+
+        if (pCharacteristic == _mcwn_char)
+        {
+            if (len == 1)
+                _networks_cursor = data[0];
+            return;
+        }
+
+        if (pCharacteristic == _mccmd_char)
+        {
+            if (len >= 1)
+                _network_cb->command(data[0]);
+            return;
+        }
+    }
+
+    void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override
+    {
+        if (pCharacteristic == _mctz_char)
+        {
+            char tz[NET_TZ_MAX_LEN + 1] = { 0 };
+            _network_cb->get_tz(tz);
+            pCharacteristic->setValue((const uint8_t*)tz, strnlen(tz, NET_TZ_MAX_LEN));
+            return;
+        }
+
+        if (pCharacteristic == _mcws_char)
+            set_wifi_settings_value();
+        else if (pCharacteristic == _mcwst_char)
+            set_wifi_status_value();
+        else if (pCharacteristic == _mcwn_char)
+            set_wifi_networks_value(false);
+        else if (pCharacteristic == _mcui_char)
+            set_update_info_value();
+    }
+};
+NetworkCharacteristicCallbacks _networkCharacteristicCallbacks;
+
+void ble_set_network_callbacks(const ble_network_callbacks_t *callbacks)
+{
+    _network_cb = callbacks;
+}
+
+// Creates the network characteristics (ble_init())
+static void ble_add_network_characteristics(NimBLEService *bleService)
+{
+    const uint32_t RW = NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE;
+
+    ESP_LOGI(TAG, "Add MatrixClock network characteristics...");
+    _mctz_char = bleService->createCharacteristic(MC_TIME_ZONE_CHAR_UUID, RW);
+    _mctz_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    // The password goes over the air: writing needs an encrypted link (the phone pairs on the first
+    // write, "Just Works")
+    _mcws_char = bleService->createCharacteristic(MC_WIFI_SETTINGS_CHAR_UUID, RW | NIMBLE_PROPERTY::WRITE_ENC);
+    _mcws_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mcwst_char = bleService->createCharacteristic(MC_WIFI_STATUS_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcwst_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mcwn_char = bleService->createCharacteristic(MC_WIFI_NETWORKS_CHAR_UUID, RW | NIMBLE_PROPERTY::NOTIFY, MC_WIFI_NETWORKS_PAGE_MAX);
+    _mcwn_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mccmd_char = bleService->createCharacteristic(MC_COMMAND_CHAR_UUID, NIMBLE_PROPERTY::WRITE);
+    _mccmd_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mcui_char = bleService->createCharacteristic(MC_UPDATE_INFO_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcui_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mcos_char = bleService->createCharacteristic(MC_OTA_STATUS_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcos_char->setValue(_ota_status_value, sizeof(_ota_status_value));
+}
+
+void ble_update_wifi_status()
+{
+    if (!_mcwst_char)
+        return;
+    set_wifi_status_value();
+    _mcwst_char->notify();
+}
+
+void ble_update_wifi_scan()
+{
+    if (!_mcwn_char)
+        return;
+    _networks_cursor = 0;
+    set_wifi_networks_value(true);
+    _mcwn_char->notify();
+}
+
+void ble_update_update_info()
+{
+    if (!_mcui_char)
+        return;
+    set_update_info_value();
+    _mcui_char->notify();
+}
+
+void ble_update_ota_status(uint8_t state, uint8_t error, uint32_t received, uint32_t total)
+{
+    if (!_mcos_char)
+        return;
+    _ota_status_value[0] = state;
+    _ota_status_value[1] = error;
+    put_u32(_ota_status_value + 2, received);
+    put_u32(_ota_status_value + 6, total);
+    _mcos_char->setValue(_ota_status_value, sizeof(_ota_status_value));
+    _mcos_char->notify();
+}
+
 void ble_init(
     ble_set_time_on_ble_write_t ble_set_time_on_ble_write_cb,
     ble_set_show_on_ble_write_t ble_set_show_on_ble_write_cb,
@@ -594,6 +866,11 @@ void ble_init(
     ESP_LOGI(TAG, "Set MTU to '%d'...", BLE_DEVICE_MTU);
     NimBLEDevice::setMTU(BLE_DEVICE_MTU);
     ESP_LOGI(TAG, "OK (actual MTU value now: %d)", NimBLEDevice::getMTU());
+
+    // Bonding with "Just Works" pairing and LE Secure Connections, for the encrypted WiFi settings
+    // write; the other characteristics stay open
+    if (_network_cb)
+        NimBLEDevice::setSecurityAuth(true, false, true);
     
     // Create the BLE Server
     ESP_LOGI(TAG, "Create BLE server...");
@@ -684,6 +961,9 @@ void ble_init(
     ESP_LOGI(TAG, "Add MatrixClock OTA Data characteristic...");
     _mcotad_char = bleService->createCharacteristic(MC_OTA_DATA_CHAR_UUID, NIMBLE_PROPERTY::WRITE, BLE_OTA_DATA_BUFFER);
     _mcotad_char->setCallbacks(&_myCharacteristicCallbacks);
+
+    if (_network_cb)
+        ble_add_network_characteristics(bleService);
 
     // Start the server (registers the service with the stack)
     ESP_LOGI(TAG, "pServer->start()...");

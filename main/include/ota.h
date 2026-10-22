@@ -43,10 +43,13 @@ bool ota_begin(
  * 
  * @param data Pointer to the firmware data buffer to be written.
  * @param length Size of the data buffer in bytes.
+ * @param timeout_ms How long to wait for room in the write queue before giving up (and aborting):
+ *        short for a BLE upload, whose callback must not block the BLE stack for long, longer for
+ *        the download from the internet (updater.cpp).
  * @return true if data was written successfully.
  * @return false if write operation failed or OTA process is not active.
  */
-bool ota_write(uint8_t* data, size_t length);
+bool ota_write(uint8_t* data, size_t length, uint32_t timeout_ms = 500);
 
 /**
  * @brief Finalizes the OTA update process and validates the written firmware.
