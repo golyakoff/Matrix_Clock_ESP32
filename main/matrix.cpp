@@ -473,7 +473,7 @@ void draw_intro(int x = 0, int y = 0)
 
 void set_matrix_time()
 {
-    mktime(&_dt); // normalize it
+    tm_normalize(&_dt); // not mktime(): the time zone must not shift the clock's local time
     log_tm(TAG, "_dt", &_dt);
 
     // Animation Splash: at the start of an hour (:00) play the selected animation over the whole

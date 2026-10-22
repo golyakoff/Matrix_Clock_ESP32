@@ -104,6 +104,7 @@ static ble_set_rtc_aging_offset_ble_write_t _set_rtc_aging_offset_ble_write = nu
 static ble_get_fw_ver_ble_read_t _get_fw_ver_ble_read = nullptr;
 static ble_set_ota_control_ble_write_t _set_ota_control_ble_write = nullptr;
 static ble_set_ota_data_ble_write_t _set_ota_data_ble_write = nullptr;
+static ble_on_disconnect_t _on_disconnect = nullptr;
 
 // BLE Server Callbacks class
 class MyServerCallbacks: public NimBLEServerCallbacks
@@ -125,6 +126,8 @@ class MyServerCallbacks: public NimBLEServerCallbacks
         _device_connected = false;
         _have_conn_handle = false;
         ESP_LOGI(TAG, "BLE device disconnected, reason %d", reason);
+        if (_on_disconnect)
+            _on_disconnect();
 
         start_advertising();
     }
@@ -728,6 +731,11 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
 };
 NetworkCharacteristicCallbacks _networkCharacteristicCallbacks;
 
+void ble_set_disconnect_callback(ble_on_disconnect_t callback)
+{
+    _on_disconnect = callback;
+}
+
 void ble_set_network_callbacks(const ble_network_callbacks_t *callbacks)
 {
     _network_cb = callbacks;
@@ -986,7 +994,7 @@ void ble_update_rtc_time(struct tm *dt)
             sizeof(formatted),
             "%d-%02d-%02d %02d:%02d:%02d",
             1900 + dt->tm_year,
-            dt->tm_mon,
+            dt->tm_mon + 1,
             dt->tm_mday,
             dt->tm_hour,
             dt->tm_min,
@@ -998,7 +1006,7 @@ void ble_update_rtc_time(struct tm *dt)
         _mcts_char->setValue(_mcts_char_value);
         _mcts_char->notify();
 
-        _mct_char_value = (uint32_t)mktime(dt);
+        _mct_char_value = (uint32_t)tm_to_seconds(dt); // the fields as UTC, as the app writes them
         _mct_char->setValue(_mct_char_value);
         _mct_char->notify();
     }

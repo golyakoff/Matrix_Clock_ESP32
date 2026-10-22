@@ -625,6 +625,14 @@ void set_ota_data_ble_write(const uint8_t* data, size_t length)
     }
 }
 
+// An upload over BLE can't go on without the phone: abort it, or the frozen display would wait for it
+// forever (the clock reboots after a failed update, see ota_completion_callback())
+void ble_disconnected()
+{
+    if (ota_is_in_progress() && !_ota_from_internet)
+        ota_abort();
+}
+
 void ota_progress_callback(size_t received, size_t total) {
     // Match what the phone app shows: it downloads the .bin to the phone first, then sends it
     // over BLE (this "install" phase, which is all the device sees) and finally reboots/verifies,
@@ -845,6 +853,7 @@ void main_network_init()
 void main_ble_init()
 {
     ble_set_network_callbacks(&_network_callbacks);
+    ble_set_disconnect_callback(ble_disconnected);
     ble_init(
         &set_rtc_time_on_ble_write,
         &set_matrix_show_on_ble_write,

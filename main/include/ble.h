@@ -17,12 +17,13 @@
 // The only service
 #define MC_SERVICE_UUID                     "5DE498A1-E7A6-4F4A-B323-913741895AD0" // Matrix Clock Service
 
-// MatrixClock time in UINT32 format: number of seconds since 1900 year (Epoch time).
-// Time is in local time zone (not UTC, no time zone specified).
+// MatrixClock time in UINT32 format: the local date and time of the clock counted as if it were UTC, i.e.
+// seconds since 1970-01-01 00:00:00 of the clock's calendar fields (no time zone applied in either direction).
 // This site can be used to check/set the time https://www.unixtimestamp.com/
 #define MC_TIME_CHAR_UUID                   "D5BD8D18-BD9A-4EF4-B206-8C78FFBE2774" // M Read, Write, Notify
 
-// MatrixClock time in formatted string "YYYY.MM.DD HH:mm:ss", example: "2023.12.31 09:05:42"
+// MatrixClock time in formatted string "YYYY-MM-DD HH:mm:ss", example: "2023-12-31 09:05:42", padded with
+// zero bytes to 20 bytes (the month was 0-based before firmware v2.0.0)
 // Time is in local time zone (not UTC, no time zone specified).
 #define MC_TIME_STR_CHAR_UUID               "AA063B0F-DB36-47D0-8F19-A70FA97D86DF" // O Read, Notify
 
@@ -285,6 +286,16 @@ typedef struct {
     // Command characteristic (0x01..0x04)
     void (*command)(uint8_t command);
 } ble_network_callbacks_t;
+
+/**
+ * @brief Type of a function called when the phone disconnects. Called from the BLE stack's task: must be fast.
+ */
+typedef void (*ble_on_disconnect_t)();
+
+/**
+ * @brief Sets the function called when the phone disconnects (nullptr: none).
+ */
+void ble_set_disconnect_callback(ble_on_disconnect_t callback);
 
 /**
  * @brief Enables the network characteristics. Call before ble_init(); without it they are not created.
