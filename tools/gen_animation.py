@@ -11,7 +11,8 @@ the arrays are plain `const uint16_t[]` (no PROGMEM / pgm_read_* needed).
 
 An animation can be restricted to the bigger boards with --min-flash-mb 16: the
 registry then wraps both its #include and its table entry in
-`#if MC_FLASH_MB >= 16` (MC_FLASH_MB is set per environment in platformio.ini),
+`#if MC_FLASH_MB >= 16` (MC_FLASH_MB comes from CONFIG_MC_FLASH_MB, set per build
+variant in variants/*.defaults),
 so its pixel data never reaches the 4MB binary. Gated animations are always
 emitted last, which keeps the 4MB set a prefix of the 16MB set - the animation
 index is stored in the RTC and sent over BLE, so it has to mean the same thing
@@ -168,10 +169,12 @@ def write_registry(manifest):
     lines.append("// translation unit (matrix.cpp): the per-animation headers define the pixel")
     lines.append("// arrays with external linkage, so including it twice would break the link.")
     lines.append("")
-    lines.append("// Board flash size in MB, set per environment in platformio.ini. Animations")
-    lines.append("// that only fit the bigger boards are gated on it; assume the small board")
-    lines.append("// when it is missing so an ungated build still links.")
-    lines.append("#ifndef MC_FLASH_MB")
+    lines.append("// Board flash size in MB, set per build variant (CONFIG_MC_FLASH_MB in")
+    lines.append("// variants/*.defaults). Animations that only fit the bigger boards are gated")
+    lines.append("// on it; assume the small board when it is missing so an ungated build still links.")
+    lines.append("#ifdef CONFIG_MC_FLASH_MB")
+    lines.append("#define MC_FLASH_MB CONFIG_MC_FLASH_MB")
+    lines.append("#else")
     lines.append("#define MC_FLASH_MB 4")
     lines.append("#endif")
     lines.append("")

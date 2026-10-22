@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Packs PlatformIO build outputs into GitHub release assets and writes the
-# release page text. Run from the repo root after `pio run` for every env:
+# Packs the ESP-IDF build outputs into GitHub release assets and writes the
+# release page text. Run from the repo root after building every variant
+# (tools/build.sh <variant>, see VARIANTS below):
 #
 #   tools/make_release.sh v1.9.0
 #
@@ -18,23 +19,23 @@
 set -euo pipefail
 
 TAG="${1:?usage: $0 <tag>}"
-BUILD_DIR="${BUILD_DIR:-.pio/build}"
+BUILD_DIR="${BUILD_DIR:-build}"
 OUT="${OUT_DIR:-release}"
 NOTES="${NOTES_FILE:-release_notes.md}"
 PYTHON="${PYTHON:-python}"
 PREFIX="tetris-clock_${TAG}"
 BUILD_DATE="$(git log -1 --format=%cI 2>/dev/null || date -Iseconds)"
 
-# boot_app0.bin ships with the Arduino-ESP32 framework package
-BOOT_APP0="${BOOT_APP0:-$(find ~/.platformio/packages -path '*framework-arduinoespressif32*/tools/partitions/boot_app0.bin' 2>/dev/null | head -n1)}"
-[ -f "$BOOT_APP0" ] || { echo "boot_app0.bin not found (set BOOT_APP0=...)" >&2; exit 1; }
-
-# variant | PlatformIO env | flash size
+# variant (build/<variant>, variants/<variant>.defaults) | flash size
 VARIANTS=(
-  "debug_4mb|esp32_4mb_debug|4MB"
-  "release_4mb|esp32_4mb|4MB"
-  "release_16mb|esp32_16mb|16MB"
+  "debug_4mb|4MB"
+  "release_4mb|4MB"
+  "release_16mb|16MB"
 )
+
+# otadata with no OTA slot selected = boot from app0; the same for every variant
+BOOT_APP0="$BUILD_DIR/release_4mb/ota_data_initial.bin"
+[ -f "$BOOT_APP0" ] || { echo "missing $BOOT_APP0 (run: tools/build.sh release_4mb)" >&2; exit 1; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -91,15 +92,15 @@ EOF
 }
 
 for entry in "${VARIANTS[@]}"; do
-  IFS='|' read -r v env size <<< "$entry"
-  src="$BUILD_DIR/$env"
-  for f in bootloader.bin partitions.bin firmware.bin; do
-    [ -f "$src/$f" ] || { echo "missing $src/$f (run: pio run -e $env)" >&2; exit 1; }
+  IFS='|' read -r v size <<< "$entry"
+  src="$BUILD_DIR/$v"
+  for f in bootloader/bootloader.bin partition_table/partition-table.bin tetris-clock.bin; do
+    [ -f "$src/$f" ] || { echo "missing $src/$f (run: tools/build.sh $v)" >&2; exit 1; }
   done
 
-  cp "$src/bootloader.bin" "$OUT/${PREFIX}_${v}_bootloader.bin"
-  cp "$src/partitions.bin" "$OUT/${PREFIX}_${v}_pt.bin"
-  cp "$src/firmware.bin"   "$OUT/${PREFIX}_${v}_fw.bin"
+  cp "$src/bootloader/bootloader.bin"           "$OUT/${PREFIX}_${v}_bootloader.bin"
+  cp "$src/partition_table/partition-table.bin" "$OUT/${PREFIX}_${v}_pt.bin"
+  cp "$src/tetris-clock.bin"                    "$OUT/${PREFIX}_${v}_fw.bin"
 
   # Single image flashed at 0x0; gaps (incl. nvs) are filled with 0xFF
   "$PYTHON" -m esptool --chip esp32 merge-bin -o "$OUT/${PREFIX}_${v}_full.bin" \

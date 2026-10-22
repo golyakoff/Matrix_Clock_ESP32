@@ -1,0 +1,4 @@
+dependencies:
+  idf: "5.5.6"
+  espressif/arduino-esp32: "3.3.12"
+  h2zero/esp-nimble-cpp: "2.5.0"

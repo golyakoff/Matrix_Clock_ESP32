@@ -1,0 +1,18 @@
+menu "Matrix Clock"
+
+    config MC_FLASH_MB
+        int "Flash size of the board, MB"
+        default 4
+        help
+            Gates the Animation Splash animations that only fit bigger boards
+            (see animations.h) and names the build variant.
+
+    config MC_BUILD_VARIANT
+        string "Build variant"
+        default "release_4mb"
+        help
+            Name of the release asset this build is published as
+            (tetris-clock_<version>_<variant>_fw.bin), also the build key
+            the clock looks for in the release manifest.
+
+endmenu

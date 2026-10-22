@@ -5,14 +5,9 @@
 		}
 	],
 	"settings": {
-		"platformio-ide.showEditorTitleShortcuts": true,
-		"platformio-ide.useBuiltinPython": false,
-		"platformio-ide.customPATH": "C:/Users/ago/.platformio/penv/Scripts",
-		"terminal.integrated.env.windows": {
-			"PATH": "C:/Users/ago/.platformio/penv/Scripts;${env:PATH}"
-		},
 		"files.watcherExclude": {
-            ".pio/**": true,
+            "build/**": true,
+            "managed_components/**": true,
             ".git/**": true
 		},
 		"cSpell.words": [
@@ -30,7 +25,7 @@
 			"mcfv",
 			"mcotac",
 			"mcotad",
-			"BLEUUID",
+			"NimBLE",
 			"otadata",
 			"ESP_LOGV",
 			"ESP_LOGD",

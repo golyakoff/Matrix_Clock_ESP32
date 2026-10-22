@@ -17,26 +17,30 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
+    - name: Build all variants
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v5.5.6
+        target: esp32
+        command: >-
+          tools/build.sh debug_4mb &&
+          tools/build.sh release_4mb &&
+          tools/build.sh release_16mb
+
     - name: Setup Python
       uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
-    - name: Install PlatformIO
-      run: |
-        python -m pip install --upgrade pip
-        pip install platformio
-        pio --version
-
-    - name: Build all environments
-      run: |
-        pio run -e esp32_4mb_debug  
-        pio run -e esp32_4mb        
-        pio run -e esp32_16mb
-
     - name: Get version from tag
       id: get_version
       run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Check the tag matches version.txt
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        test "$(head -n1 version.txt)" = "${{ steps.get_version.outputs.TAG_NAME }}" \
+          || { echo "version.txt ($(head -n1 version.txt)) does not match the tag"; exit 1; }
 
     - name: Install esptool
       run: pip install "esptool>=5,<6"
