@@ -13,6 +13,7 @@ static const char* TAG = "NET_SETTINGS";
 #define NET_KEY_PASSWORD        "wifi_pass"
 #define NET_KEY_TZ              "tz"
 #define NET_KEY_NAME            "ble_name"
+#define NET_KEY_UPDATE_CHANNEL  "upd_channel"
 
 #define NET_DEFAULT_PERIOD      (1U)
 
@@ -63,9 +64,13 @@ bool net_settings_init()
     }
     if (_preferences.isKey(NET_KEY_NAME))
         _preferences.getString(NET_KEY_NAME, _settings.name, sizeof(_settings.name));
+    uint8_t channel = _preferences.getUChar(NET_KEY_UPDATE_CHANNEL, net_update_stable);
+    if (channel <= net_update_beta)
+        _settings.update_channel = channel;
 
-    ESP_LOGI(TAG, "WiFi mode %d, period %d h, SSID '%s', TZ '%s', name '%s'",
-        _settings.mode, _settings.period_hours, _settings.ssid, _settings.tz, _settings.name);
+    ESP_LOGI(TAG, "WiFi mode %d, period %d h, SSID '%s', TZ '%s', name '%s', update channel %d",
+        _settings.mode, _settings.period_hours, _settings.ssid, _settings.tz, _settings.name,
+        _settings.update_channel);
     return true;
 }
 
@@ -123,6 +128,18 @@ bool net_settings_set_name(const char *name)
     return true;
 }
 
+bool net_settings_set_update_channel(uint8_t channel)
+{
+    if (channel > net_update_beta)
+        return false;
+
+    portENTER_CRITICAL(&_settings_mux);
+    _settings.update_channel = channel;
+    _settings_dirty = true;
+    portEXIT_CRITICAL(&_settings_mux);
+    return true;
+}
+
 bool net_settings_is_dirty()
 {
     return _settings_dirty;
@@ -148,7 +165,8 @@ bool net_settings_flush()
               _preferences.putString(NET_KEY_SSID, settings.ssid) == strlen(settings.ssid) &&
               _preferences.putString(NET_KEY_PASSWORD, settings.password) == strlen(settings.password) &&
               _preferences.putString(NET_KEY_TZ, settings.tz) == strlen(settings.tz) &&
-              _preferences.putString(NET_KEY_NAME, settings.name) == strlen(settings.name);
+              _preferences.putString(NET_KEY_NAME, settings.name) == strlen(settings.name) &&
+              _preferences.putUChar(NET_KEY_UPDATE_CHANNEL, settings.update_channel) == 1;
     if (!ok)
         ESP_LOGE(TAG, "Error: writing the network settings into NVS failed.");
     return ok;

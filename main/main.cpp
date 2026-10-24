@@ -871,6 +871,18 @@ bool net_set_name(const char *name)
     return net_settings_set_name(name);
 }
 
+uint8_t net_get_update_channel()
+{
+    net_settings_t settings;
+    net_settings_get(&settings);
+    return settings.update_channel;
+}
+
+bool net_set_update_channel(uint8_t channel)
+{
+    return net_settings_set_update_channel(channel);
+}
+
 static const ble_network_callbacks_t _network_callbacks = {
     .get_tz = net_get_tz,
     .set_tz = net_set_tz,
@@ -881,6 +893,8 @@ static const ble_network_callbacks_t _network_callbacks = {
     .command = net_command,
     .get_name = net_get_name,
     .set_name = net_set_name,
+    .get_update_channel = net_get_update_channel,
+    .set_update_channel = net_set_update_channel,
 };
 
 // Starts WiFi and the updater; BLE has the network characteristics (main_ble_init())

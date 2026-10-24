@@ -3,7 +3,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Network settings kept in NVS: the WiFi connection, the time zone and the clock's BLE name.
+// Network settings kept in NVS: the WiFi connection, the time zone, the clock's BLE name and the
+// update channel.
 
 #define NET_SSID_MAX_LEN        (32U)  // bytes, as in the 802.11 standard
 #define NET_PASSWORD_MAX_LEN    (64U)  // bytes, WPA2 passphrase (63) or raw PSK in hex (64)
@@ -24,6 +25,14 @@ typedef enum {
     net_wifi_periodic = 1   // every period_hours: connect, sync time, check for an update, disconnect
 } net_wifi_mode_t;
 
+/**
+ * @brief Which releases the update from the internet offers (updater.h).
+ */
+typedef enum {
+    net_update_stable = 0,  // releases only (default)
+    net_update_beta = 1     // also pre-releases (vX.Y.Z-betaN), whichever version is higher
+} net_update_channel_t;
+
 typedef struct {
     uint8_t mode;                           // net_wifi_mode_t
     uint8_t period_hours;                   // NET_WIFI_PERIOD_MIN..NET_WIFI_PERIOD_MAX
@@ -31,6 +40,7 @@ typedef struct {
     char password[NET_PASSWORD_MAX_LEN + 1]; // empty for an open network
     char tz[NET_TZ_MAX_LEN + 1];
     char name[NET_NAME_MAX_LEN + 1];        // BLE name, empty for the default "Tetris Clock XXXX"
+    uint8_t update_channel;                 // net_update_channel_t
 } net_settings_t;
 
 /**
@@ -67,6 +77,14 @@ bool net_settings_set_tz(const char *tz);
  * @return false if the name is too long or has control characters (nothing is changed then).
  */
 bool net_settings_set_name(const char *name);
+
+/**
+ * @brief Changes the update channel in RAM; it is written to NVS by net_settings_flush().
+ *
+ * @param channel net_update_channel_t.
+ * @return false if the channel is unknown (nothing is changed then).
+ */
+bool net_settings_set_update_channel(uint8_t channel);
 
 /**
  * @brief Whether there are changes not written to NVS yet.

@@ -56,6 +56,7 @@ static NimBLECharacteristic* _mccmd_char = nullptr;
 static NimBLECharacteristic* _mcui_char = nullptr;
 static NimBLECharacteristic* _mcos_char = nullptr;
 static NimBLECharacteristic* _mcdn_char = nullptr;
+static NimBLECharacteristic* _mcuc_char = nullptr;
 
 // Variables
 static bool _device_connected = false;
@@ -712,6 +713,15 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
             return;
         }
 
+        if (pCharacteristic == _mcuc_char)
+        {
+            if (len != 1 || !_network_cb->set_update_channel(data[0]))
+                ESP_LOGE(TAG, "Error: invalid update channel (%d bytes)", (int)len);
+            else
+                ESP_LOGI(TAG, "Update channel %d", data[0]);
+            return;
+        }
+
         if (pCharacteristic == _mcdn_char)
         {
             char name[NET_NAME_MAX_LEN + 1] = { 0 };
@@ -741,6 +751,13 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
         if (pCharacteristic == _mcdn_char)
         {
             pCharacteristic->setValue((const uint8_t*)_device_name, strnlen(_device_name, NET_NAME_MAX_LEN));
+            return;
+        }
+
+        if (pCharacteristic == _mcuc_char)
+        {
+            uint8_t channel = _network_cb->get_update_channel();
+            pCharacteristic->setValue(&channel, 1);
             return;
         }
 
@@ -797,6 +814,9 @@ static void ble_add_network_characteristics(NimBLEService *bleService)
 
     _mcdn_char = bleService->createCharacteristic(MC_DEVICE_NAME_CHAR_UUID, RW, NET_NAME_MAX_LEN);
     _mcdn_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    _mcuc_char = bleService->createCharacteristic(MC_UPDATE_CHANNEL_CHAR_UUID, RW, 1);
+    _mcuc_char->setCallbacks(&_networkCharacteristicCallbacks);
 }
 
 void ble_update_wifi_status()

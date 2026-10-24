@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
-# The firmware version, e.g. "v2.0.0": the app compares it with the GitHub release tags.
-# -DMC_VERSION=v2.0.1 overrides it for a test update (tools/make_test_update.sh).
+# The firmware version, "vX.Y.Z" or "vX.Y.Z-betaN": the app and the updater compare it with the
+# released ones. -DMC_VERSION=... overrides it, e.g. to build a lower version and test an update.
 if(DEFINED MC_VERSION)
     set(PROJECT_VER ${MC_VERSION})
 else()

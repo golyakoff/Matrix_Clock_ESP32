@@ -4,6 +4,7 @@
 # (tools/build.sh <variant>, see VARIANTS below):
 #
 #   tools/make_release.sh v1.9.0
+#   tools/make_release.sh v2.1.0-beta1
 #
 # Produces in $OUT_DIR (default: release/), for each variant V:
 #   tetris-clock_<tag>_V_bootloader.bin   0x1000   second-stage bootloader
@@ -16,7 +17,8 @@
 #   manifest.json                                  the clock's update from the internet
 #                                                  (main/include/updater.h, tools/make_manifest.py)
 # and the release page markdown in $NOTES_FILE (default: release_notes.md).
-# The debug_4mb variant is for local runs only and is not published.
+# A beta (vX.Y.Z-betaN) also carries tetris-clock_<tag>_V_fw.bin of the debug variants (in the
+# manifest too), for testers running a debug build; releases publish no debug builds.
 #
 # Requires: python with esptool >= 5 (`pip install esptool`).
 set -euo pipefail
@@ -34,6 +36,12 @@ VARIANTS=(
   "release_4mb|4MB"
   "release_16mb|16MB"
 )
+
+# Betas only: the application of these variants (build/<variant>), for the updates
+FW_ONLY_VARIANTS=()
+if [[ "$TAG" == *-beta* ]]; then
+  FW_ONLY_VARIANTS=(debug_4mb debug_16mb)
+fi
 
 # otadata with no OTA slot selected = boot from app0; the same for every variant
 BOOT_APP0="$BUILD_DIR/release_4mb/ota_data_initial.bin"
@@ -122,10 +130,18 @@ for entry in "${VARIANTS[@]}"; do
     "${PREFIX}_${v}_fw.bin")
 done
 
+for v in "${FW_ONLY_VARIANTS[@]}"; do
+  [ -f "$BUILD_DIR/$v/tetris-clock.bin" ] || { echo "missing $BUILD_DIR/$v/tetris-clock.bin (run: tools/build.sh $v)" >&2; exit 1; }
+  cp "$BUILD_DIR/$v/tetris-clock.bin" "$OUT/${PREFIX}_${v}_fw.bin"
+done
+
 # ---------------------------------------------------------------- update manifest
 MANIFEST_ARGS=()
 for entry in "${VARIANTS[@]}"; do
   IFS='|' read -r v size <<< "$entry"
+  MANIFEST_ARGS+=("$v=$OUT/${PREFIX}_${v}_fw.bin")
+done
+for v in "${FW_ONLY_VARIANTS[@]}"; do
   MANIFEST_ARGS+=("$v=$OUT/${PREFIX}_${v}_fw.bin")
 done
 "$PYTHON" "$(dirname "$0")/make_manifest.py" --version "$TAG" \
@@ -134,9 +150,17 @@ done
 
 # ---------------------------------------------------------------- release page
 P="$PREFIX"
+BETA_NOTE=""
+if [ ${#FW_ONLY_VARIANTS[@]} -gt 0 ]; then
+  BETA_NOTE='> ⚠️ **Beta.** Offered only to clocks with the beta update channel on (the app's
+> firmware card). It also has the application of the debug builds (`*_debug_*_fw.bin`) for testers
+> running them.
+'
+fi
 cat > "$NOTES" <<EOF
 # Tetris Clock ESP32 Firmware
 
+${BETA_NOTE}
 **Version:** ${TAG}
 **Build date:** ${BUILD_DATE}
 

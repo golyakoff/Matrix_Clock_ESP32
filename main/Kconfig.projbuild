@@ -20,8 +20,14 @@ menu "Matrix Clock"
         default "https://github.com/golyakoff/Matrix_Clock_ESP32/releases/latest/download/manifest.json"
         help
             Where the clock reads the release manifest of the update from the
-            internet (updater.h). Release builds read the latest GitHub release;
-            debug builds read the "ota-test" pre-release, so the update can be
-            tested without publishing a release (tools/make_test_update.sh).
+            internet (updater.h): the latest GitHub release.
+
+    config MC_UPDATE_BETA_MANIFEST_URL
+        string "Beta update manifest URL"
+        default "https://github.com/golyakoff/Matrix_Clock_ESP32/releases/download/beta/manifest.json"
+        help
+            Where a clock on the beta update channel also reads the manifest of
+            the latest beta (updater.h): the "beta" pre-release, which CI updates
+            on every vX.Y.Z-betaN tag.
 
 endmenu

@@ -22,13 +22,13 @@ import sys
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--version', required=True, help='firmware version, vMAJOR.MINOR.PATCH')
+    p.add_argument('--version', required=True, help='firmware version, vMAJOR.MINOR.PATCH[-betaN]')
     p.add_argument('--base-url', required=True, help='https URL of the release assets')
     p.add_argument('builds', nargs='+', help='VARIANT=FILE')
     args = p.parse_args()
 
-    if not re.fullmatch(r'v\d+\.\d+(\.\d+)?', args.version):
-        p.error('version must be vMAJOR.MINOR.PATCH')
+    if not re.fullmatch(r'v\d+\.\d+(\.\d+)?(-beta[1-9]\d*)?', args.version):
+        p.error('version must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-betaN')
     if not args.base_url.startswith('https://'):
         p.error('base URL must be https')
 

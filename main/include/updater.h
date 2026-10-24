@@ -6,10 +6,13 @@
 
 // Firmware update from the internet (GitHub releases), ported from FireLamp_ESP32 (main/updater.c).
 //
-// The clock reads the release manifest (CONFIG_MC_UPDATE_MANIFEST_URL: the latest GitHub release,
-// the "ota-test" pre-release for debug builds) on every WiFi session and on request,
-// and reports whether a newer version is available. The update is installed only on request
-// (Command characteristic). The firmware is written by the ota module, as a BLE upload is.
+// The clock reads the release manifest (CONFIG_MC_UPDATE_MANIFEST_URL: the latest GitHub release) on
+// every WiFi session and on request, and reports whether a newer version is available. On the beta
+// channel (net_settings_t::update_channel) it also reads the manifest of the latest beta
+// (CONFIG_MC_UPDATE_BETA_MANIFEST_URL: the "beta" pre-release, which CI updates on every vX.Y.Z-betaN
+// tag) and offers whichever version is higher; a beta comes before its release (v2.1.0-beta2 <
+// v2.1.0). The update is installed only on request (Command characteristic). The firmware is written
+// by the ota module, as a BLE upload is.
 //
 // Manifest format (tools/make_manifest.py):
 // {
@@ -24,6 +27,7 @@
 // as up to date.
 
 #define UPDATER_MANIFEST_URL CONFIG_MC_UPDATE_MANIFEST_URL
+#define UPDATER_BETA_MANIFEST_URL CONFIG_MC_UPDATE_BETA_MANIFEST_URL
 
 typedef enum {
     update_unknown = 0,     // not checked since boot

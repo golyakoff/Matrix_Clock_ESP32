@@ -137,6 +137,11 @@
 // several clocks can be told apart when pairing.
 #define MC_DEVICE_NAME_CHAR_UUID            "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FE" // O Read, Write
 
+// Update channel, u8: 0 = releases only (default), 1 = also betas (vX.Y.Z-betaN pre-releases): the
+// update from the internet then offers whichever of the latest release and the latest beta is
+// higher. Kept in NVS; takes effect on the next check (Command 0x02).
+#define MC_UPDATE_CHANNEL_CHAR_UUID         "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FF" // O Read, Write
+
 // Firmware update characteristics
 #define MC_VERSION_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
 #define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1" // M Write
@@ -296,6 +301,9 @@ typedef struct {
     // one when none is set); set an empty name for the default, returns false if invalid
     void (*get_name)(char *name_out);
     bool (*set_name)(const char *name);
+    // Update channel (net_update_channel_t); set returns false if unknown
+    uint8_t (*get_update_channel)();
+    bool (*set_update_channel)(uint8_t channel);
 } ble_network_callbacks_t;
 
 /**

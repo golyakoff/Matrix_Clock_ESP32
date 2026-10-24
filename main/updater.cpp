@@ -10,6 +10,7 @@
 #include <mbedtls/sha256.h>
 
 #include "updater.h"
+#include "net_settings.h"
 #include "ota.h"
 #include "wifi.h"
 
@@ -32,11 +33,20 @@ static updater_ota_begin_cb_t _ota_begin_cb = nullptr;
 static volatile bool _check_requested = false;
 static volatile bool _install_requested = false;
 
-// the latest manifest data for this build
-static char _url[512];
-static uint32_t _size = 0;
-static uint8_t _sha[32];
-static bool _sha_valid = false;
+// A release as a manifest describes it, with the data of this build
+typedef struct {
+    char version[sizeof(update_info_t::version)];
+    bool has_build;         // the manifest has CONFIG_MC_BUILD_VARIANT
+    char url[512];
+    uint32_t size;
+    uint8_t sha[32];
+    bool sha_valid;
+} release_t;
+
+// the releases of the last check: the stable one and the beta (beta channel only)
+static release_t _releases[2];
+// the release to install: one of _releases, nullptr if none has this build
+static const release_t *_release = nullptr;
 
 static void set_state(update_state_t s)
 {
@@ -51,15 +61,25 @@ static void report(uint8_t state, uint8_t error, uint32_t received = 0, uint32_t
         _ota_status_cb(state, error, received, total);
 }
 
-// "v1.2.3" -> comparable number, 0 if not parsed
-static uint32_t version_num(const char *v)
+// "v1.2.3" -> comparable number, 0 if not parsed. A beta comes before its release:
+// v1.2.3 < v1.2.4-beta1 < v1.2.4-beta2 < v1.2.4. Other suffixes are ignored.
+static uint64_t version_num(const char *v)
 {
-    unsigned major = 0, minor = 0, patch = 0;
+    unsigned major = 0, minor = 0, patch = 0, beta = 0;
+    int n = 0;
     if (v[0] == 'v')
         v++;
-    if (sscanf(v, "%u.%u.%u", &major, &minor, &patch) < 2)
+    if (sscanf(v, "%u.%u%n", &major, &minor, &n) < 2)
         return 0;
-    return (major << 20) | ((minor & 0x3ff) << 10) | (patch & 0x3ff);
+    v += n;
+    n = 0;
+    if (sscanf(v, ".%u%n", &patch, &n) == 1)
+        v += n;
+    uint64_t pre = 0xffff; // a release
+    if (sscanf(v, "-beta%u", &beta) == 1 && beta > 0 && beta < 0xffff)
+        pre = beta;
+    return ((uint64_t)(major & 0xffff) << 48) | ((uint64_t)(minor & 0xffff) << 32) |
+           ((uint64_t)(patch & 0xffff) << 16) | pre;
 }
 
 static bool parse_hex(const char *s, uint8_t *out, size_t len)
@@ -118,14 +138,11 @@ static esp_http_client_handle_t http_client(const char *url)
     return esp_http_client_init(&cfg);
 }
 
-// report: also send OTA status notifications (the app asked to install)
-static esp_err_t check(bool report_status)
+// Downloads and parses the manifest at url into out
+static esp_err_t read_manifest(const char *url, release_t *out)
 {
-    set_state(update_checking);
-    if (report_status)
-        report(updater_ota_checking, updater_ota_err_none);
-
-    esp_http_client_handle_t client = http_client(UPDATER_MANIFEST_URL);
+    memset(out, 0, sizeof(*out));
+    esp_http_client_handle_t client = http_client(url);
     if (!client)
         return ESP_ERR_NO_MEM;
 
@@ -137,8 +154,6 @@ static esp_err_t check(bool report_status)
     cJSON *build = nullptr;
     const char *build_url = nullptr;
     cJSON *build_size = nullptr;
-    const char *current = nullptr;
-    bool newer = false;
     int total = 0, n;
 
     if (!buf)
@@ -146,6 +161,7 @@ static esp_err_t check(bool report_status)
         res = ESP_ERR_NO_MEM;
         goto exit;
     }
+    ESP_LOGI(TAG, "Reading %s", url);
     if ((res = http_open(client, &len)) != ESP_OK)
         goto exit;
 
@@ -157,59 +173,96 @@ static esp_err_t check(bool report_status)
     res = ESP_ERR_INVALID_RESPONSE;
     json = cJSON_Parse(buf);
     version = cJSON_GetStringValue(cJSON_GetObjectItem(json, "version"));
-    if (!version || !version_num(version))
+    if (!version || !version_num(version) || strlen(version) >= sizeof(out->version))
     {
         ESP_LOGW(TAG, "Invalid manifest");
         goto exit;
     }
-    strncpy(_info.version, version, sizeof(_info.version) - 1);
-    _info.checked_at = time(nullptr);
+    strcpy(out->version, version);
 
     build = cJSON_GetObjectItem(cJSON_GetObjectItem(json, "builds"), CONFIG_MC_BUILD_VARIANT);
     if (!build)
     {
         // a custom build: official releases are not for this clock
         ESP_LOGI(TAG, "Release %s has no build " CONFIG_MC_BUILD_VARIANT, version);
-        set_state(update_up_to_date);
         res = ESP_OK;
         goto exit;
     }
     build_url = cJSON_GetStringValue(cJSON_GetObjectItem(build, "url"));
     build_size = cJSON_GetObjectItem(build, "size");
-    if (!build_url || strlen(build_url) >= sizeof(_url) || strncmp(build_url, "https://", 8)
+    if (!build_url || strlen(build_url) >= sizeof(out->url) || strncmp(build_url, "https://", 8)
             || !cJSON_IsNumber(build_size) || cJSON_GetNumberValue(build_size) < 1)
     {
         ESP_LOGW(TAG, "Invalid build " CONFIG_MC_BUILD_VARIANT " in manifest");
         goto exit;
     }
 
-    strcpy(_url, build_url);
-    _size = (uint32_t)cJSON_GetNumberValue(build_size);
-    _sha_valid = parse_hex(cJSON_GetStringValue(cJSON_GetObjectItem(build, "sha256")), _sha, sizeof(_sha));
-
-    current = esp_app_get_description()->version;
-    newer = version_num(version) > version_num(current);
-    ESP_LOGI(TAG, "Current %s, released %s%s", current, version, newer ? ": update available" : "");
-    set_state(newer ? update_available : update_up_to_date);
+    strcpy(out->url, build_url);
+    out->size = (uint32_t)cJSON_GetNumberValue(build_size);
+    out->sha_valid = parse_hex(cJSON_GetStringValue(cJSON_GetObjectItem(build, "sha256")), out->sha, sizeof(out->sha));
+    out->has_build = true;
     res = ESP_OK;
 
 exit:
     if (res != ESP_OK)
-    {
-        ESP_LOGW(TAG, "Check failed: %d (%s)", res, esp_err_to_name(res));
-        set_state(update_check_failed);
-    }
+        ESP_LOGW(TAG, "Reading the manifest failed: %d (%s)", res, esp_err_to_name(res));
     cJSON_Delete(json);
     free(buf);
     esp_http_client_cleanup(client);
     return res;
 }
 
+// report: also send OTA status notifications (the app asked to install)
+static esp_err_t check(bool report_status)
+{
+    set_state(update_checking);
+    if (report_status)
+        report(updater_ota_checking, updater_ota_err_none);
+
+    net_settings_t settings;
+    net_settings_get(&settings);
+    const char *urls[] = { UPDATER_MANIFEST_URL, UPDATER_BETA_MANIFEST_URL };
+    size_t count = settings.update_channel == net_update_beta ? 2 : 1;
+
+    // The highest version with a build for this clock; the highest version at all if none has one.
+    // A manifest that could not be read is skipped (there may be no beta yet, or no stable release
+    // with a manifest): the check fails only when none could be.
+    const release_t *latest = nullptr;
+    _release = nullptr;
+    for (size_t i = 0; i < count; i++)
+    {
+        if (read_manifest(urls[i], &_releases[i]) != ESP_OK)
+            continue;
+        uint64_t v = version_num(_releases[i].version);
+        if (!latest || v > version_num(latest->version))
+            latest = &_releases[i];
+        if (_releases[i].has_build && (!_release || v > version_num(_release->version)))
+            _release = &_releases[i];
+    }
+    if (!latest)
+    {
+        ESP_LOGW(TAG, "Check failed");
+        set_state(update_check_failed);
+        return ESP_FAIL;
+    }
+
+    const release_t *shown = _release ? _release : latest;
+    strcpy(_info.version, shown->version);
+    _info.checked_at = time(nullptr);
+
+    const char *current = esp_app_get_description()->version;
+    bool newer = _release && version_num(_release->version) > version_num(current);
+    ESP_LOGI(TAG, "Current %s, released %s%s", current, shown->version, newer ? ": update available" : "");
+    set_state(newer ? update_available : update_up_to_date);
+    return ESP_OK;
+}
+
 static esp_err_t install()
 {
-    ESP_LOGI(TAG, "Installing %s from %s", _info.version, _url);
+    const release_t *r = _release;
+    ESP_LOGI(TAG, "Installing %s from %s", r->version, r->url);
 
-    esp_http_client_handle_t client = http_client(_url);
+    esp_http_client_handle_t client = http_client(r->url);
     if (!client)
     {
         report(updater_ota_error, updater_ota_err_download);
@@ -227,7 +280,7 @@ static esp_err_t install()
 
     // From here on the clock is in the OTA mode: any failure ends in an ota_abort(), after which
     // main.cpp reboots the clock (as after a failed BLE upload)
-    if (!_ota_begin_cb || !_ota_begin_cb(_size))
+    if (!_ota_begin_cb || !_ota_begin_cb(r->size))
     {
         report(updater_ota_error, updater_ota_err_busy);
         esp_http_client_close(client);
@@ -242,14 +295,14 @@ static esp_err_t install()
 
     uint32_t received = 0, reported = 0;
     uint8_t error = updater_ota_err_none;
-    report(updater_ota_receiving, updater_ota_err_none, 0, _size);
-    while (received < _size)
+    report(updater_ota_receiving, updater_ota_err_none, 0, r->size);
+    while (received < r->size)
     {
-        uint32_t want = _size - received;
+        uint32_t want = r->size - received;
         int n = esp_http_client_read(client, (char *)chunk, want < sizeof(chunk) ? want : sizeof(chunk));
         if (n <= 0)
         {
-            ESP_LOGE(TAG, "Download interrupted at %lu of %lu bytes", (unsigned long)received, (unsigned long)_size);
+            ESP_LOGE(TAG, "Download interrupted at %lu of %lu bytes", (unsigned long)received, (unsigned long)r->size);
             error = updater_ota_err_download;
             break;
         }
@@ -263,7 +316,7 @@ static esp_err_t install()
         if (received - reported >= UPDATER_PROGRESS_STEP)
         {
             reported = received;
-            report(updater_ota_receiving, updater_ota_err_none, received, _size);
+            report(updater_ota_receiving, updater_ota_err_none, received, r->size);
         }
     }
     esp_http_client_close(client);
@@ -272,7 +325,7 @@ static esp_err_t install()
     uint8_t digest[32];
     mbedtls_sha256_finish(&sha, digest);
     mbedtls_sha256_free(&sha);
-    if (error == updater_ota_err_none && _sha_valid && memcmp(digest, _sha, sizeof(digest)))
+    if (error == updater_ota_err_none && r->sha_valid && memcmp(digest, r->sha, sizeof(digest)))
     {
         ESP_LOGE(TAG, "SHA-256 mismatch");
         error = updater_ota_err_sha;
@@ -283,15 +336,15 @@ static esp_err_t install()
         // ota_write() aborts by itself on a flash error
         if (error != updater_ota_err_flash)
             ota_abort();
-        report(updater_ota_error, error, received, _size);
+        report(updater_ota_error, error, received, r->size);
         return ESP_FAIL;
     }
 
-    report(updater_ota_success, updater_ota_err_none, received, _size);
+    report(updater_ota_success, updater_ota_err_none, received, r->size);
     // verifies the image, switches the boot partition and reboots
     if (!ota_end())
     {
-        report(updater_ota_error, updater_ota_err_flash, received, _size);
+        report(updater_ota_error, updater_ota_err_flash, received, r->size);
         return ESP_FAIL;
     }
     return ESP_OK;
