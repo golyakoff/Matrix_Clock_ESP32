@@ -90,12 +90,23 @@ BSD license, check license.txt for more information
   // showed as flicker. Direct register writes and the cycle counter, all in IRAM, keep it exact.
   #include "esp_cpu.h"
   #include "esp_rom_sys.h"
+  // The latch pulse and the pause before the LEDs go on are kept to some 100 ns, about what
+  // digitalWrite() gave them: the shift register chips need them to settle.
+  #define PxMATRIX_SETTLE_CYCLES 24
+  static inline void IRAM_ATTR PxMATRIX_wait_cycles(uint32_t cycles)
+  {
+    uint32_t start = esp_cpu_get_cycle_count();
+    while (esp_cpu_get_cycle_count() - start < cycles)
+      ;
+  }
   static void IRAM_ATTR PxMATRIX_latch_cycles(uint8_t latch_pin, uint8_t oe_pin, uint32_t on_cycles)
   {
     GPIO.out_w1ts = 1UL << latch_pin;
+    PxMATRIX_wait_cycles(PxMATRIX_SETTLE_CYCLES);
     GPIO.out_w1tc = 1UL << latch_pin;
     if (on_cycles == 0)
       return;
+    PxMATRIX_wait_cycles(PxMATRIX_SETTLE_CYCLES);
     uint32_t start = esp_cpu_get_cycle_count();
     GPIO.out_w1tc = 1UL << oe_pin;
     while (esp_cpu_get_cycle_count() - start < on_cycles)
@@ -1263,6 +1274,22 @@ uint8_t *PxMATRIX_bufferp = PxMATRIX_buffer;
 
 #ifdef PxMATRIX_DOUBLE_BUFFER
   PxMATRIX_bufferp = _active_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
+#endif
+
+#ifdef ESP32
+  // Matrix Clock: the column drivers idle between the calls (one call per refresh timer tick), and
+  // the first row after that lit up visibly dimmer than the others at a low brightness, where the
+  // on time is under a microsecond. A blank row (all columns off) latched and "lit" first takes
+  // that first pulse.
+  if (_driver_chip == SHIFT && !_fast_update)
+  {
+    static const uint8_t blank_row[96] = {};
+    if (_send_buffer_size <= sizeof(blank_row))
+    {
+      SPI_TRANSFER((uint8_t *)blank_row, _send_buffer_size);
+      PxMATRIX_latch_cycles(_LATCH_PIN, _OE_PIN, latch_cycles);
+    }
+  }
 #endif
 
   for (uint8_t i=0;i<_row_pattern;i++)
