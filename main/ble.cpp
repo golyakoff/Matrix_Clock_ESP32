@@ -1007,6 +1007,9 @@ void ble_init(
     ESP_LOGI(TAG, "pServer->start()...");
     pServer->start();
     ESP_LOGI(TAG, "OK (BLE server successfully started)");
+    // Starting the server resets the GAP service, and with it the Device Name characteristic to
+    // NimBLE's default "nimble" (the name Android shows in the pairing dialog)
+    NimBLEDevice::setDeviceName(_device_name);
 
     // Start advertising
     start_advertising();
@@ -1014,6 +1017,23 @@ void ble_init(
 
 void ble_update_rtc_time(struct tm *dt)
 {
+    // Every 30 s: the link and advertising state, and advertising again if it stopped while no
+    // phone is connected (the clock would no longer show up in the app's list)
+    static int last_check = -1;
+    const int now = dt->tm_min * 60 + dt->tm_sec;
+    if (dt->tm_sec % 30 == 0 && now != last_check)
+    {
+        last_check = now;
+        const int connected = NimBLEDevice::getServer()->getConnectedCount();
+        const bool advertising = NimBLEDevice::getAdvertising()->isAdvertising();
+        ESP_LOGD(TAG, "State: %d connected, advertising %d", connected, advertising);
+        if (connected == 0 && !advertising)
+        {
+            ESP_LOGW(TAG, "Not connected and not advertising: advertising again");
+            start_advertising();
+        }
+    }
+
     if (_device_connected && times_are_different(dt, &_last_update_dt)) {
         memcpy(&_last_update_dt, dt, sizeof(struct tm));
         // The value is always the 20 bytes of "YYYY-MM-DD HH:mm:ss" + zero; formatted via a bigger
@@ -1095,6 +1115,8 @@ void start_advertising()
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
     pAdvertising->setAdvertisementData(adv_data);
     pAdvertising->setScanResponseData(scan_data);
-    pAdvertising->start();
-    ESP_LOGI(TAG, "OK (advertising started)");
+    if (pAdvertising->start())
+        ESP_LOGI(TAG, "OK (advertising started)");
+    else
+        ESP_LOGE(TAG, "Error: advertising did not start");
 }
