@@ -151,9 +151,13 @@ void matrix_init(struct tm *init_dt)
     }
 
     delay(2000);
-    _finished_animating = false;
+    // The digits start falling from the first set_matrix_time() (the forced update matrix_set_time()
+    // above asked for) in loop(), which gives the Tetris their time first. Restarting the animation
+    // here instead drew whatever the Tetris state held until then, for the rest of setup(): blocks
+    // and shifted digits flashing on the time row.
     _display_intro = false;
     tetris.scale = 2;
+    display.clearDisplay();
 }
 
 void matrix_pause_timers()
