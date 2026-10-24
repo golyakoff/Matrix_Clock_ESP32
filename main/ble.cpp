@@ -55,9 +55,13 @@ static NimBLECharacteristic* _mcwn_char = nullptr;
 static NimBLECharacteristic* _mccmd_char = nullptr;
 static NimBLECharacteristic* _mcui_char = nullptr;
 static NimBLECharacteristic* _mcos_char = nullptr;
+static NimBLECharacteristic* _mcdn_char = nullptr;
 
 // Variables
 static bool _device_connected = false;
+
+// The advertised (and GAP) name: BLE_SERVER_NAME, or the one from the network callbacks
+static char _device_name[NET_NAME_MAX_LEN + 1] = BLE_SERVER_NAME;
 
 // Kept so an OTA update can ask the central for connection parameters friendlier to the fast
 // firmware stream (a long supervision timeout) - see ble_request_ota_conn_params().
@@ -707,6 +711,21 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
                 _network_cb->command(data[0]);
             return;
         }
+
+        if (pCharacteristic == _mcdn_char)
+        {
+            char name[NET_NAME_MAX_LEN + 1] = { 0 };
+            if (len > NET_NAME_MAX_LEN || !_network_cb->set_name((const char*)memcpy(name, data, len)))
+            {
+                ESP_LOGE(TAG, "Error: invalid device name (%d bytes)", (int)len);
+                return;
+            }
+            // Advertised from the next disconnect on: the clock does not advertise while connected
+            _network_cb->get_name(_device_name);
+            NimBLEDevice::setDeviceName(_device_name);
+            ESP_LOGI(TAG, "Device name '%s'", _device_name);
+            return;
+        }
     }
 
     void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override
@@ -716,6 +735,12 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
             char tz[NET_TZ_MAX_LEN + 1] = { 0 };
             _network_cb->get_tz(tz);
             pCharacteristic->setValue((const uint8_t*)tz, strnlen(tz, NET_TZ_MAX_LEN));
+            return;
+        }
+
+        if (pCharacteristic == _mcdn_char)
+        {
+            pCharacteristic->setValue((const uint8_t*)_device_name, strnlen(_device_name, NET_NAME_MAX_LEN));
             return;
         }
 
@@ -769,6 +794,9 @@ static void ble_add_network_characteristics(NimBLEService *bleService)
 
     _mcos_char = bleService->createCharacteristic(MC_OTA_STATUS_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     _mcos_char->setValue(_ota_status_value, sizeof(_ota_status_value));
+
+    _mcdn_char = bleService->createCharacteristic(MC_DEVICE_NAME_CHAR_UUID, RW, NET_NAME_MAX_LEN);
+    _mcdn_char->setCallbacks(&_networkCharacteristicCallbacks);
 }
 
 void ble_update_wifi_status()
@@ -867,8 +895,10 @@ void ble_init(
     memset(&_last_update_dt, 0, sizeof(_last_update_dt));
 
     // Create the BLE Device
-    ESP_LOGI(TAG, "Initialize BLE device '%s'...", BLE_SERVER_NAME);
-    NimBLEDevice::init(BLE_SERVER_NAME);
+    if (_network_cb)
+        _network_cb->get_name(_device_name);
+    ESP_LOGI(TAG, "Initialize BLE device '%s'...", _device_name);
+    NimBLEDevice::init(_device_name);
     ESP_LOGI(TAG, "OK (BLE device initialized)");
 
     ESP_LOGI(TAG, "Set MTU to '%d'...", BLE_DEVICE_MTU);
@@ -1060,7 +1090,7 @@ void start_advertising()
     adv_data.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
     adv_data.addServiceUUID(NimBLEUUID(MC_SERVICE_UUID));
     NimBLEAdvertisementData scan_data;
-    scan_data.setName(BLE_SERVER_NAME);
+    scan_data.setName(_device_name);
 
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
     pAdvertising->setAdvertisementData(adv_data);

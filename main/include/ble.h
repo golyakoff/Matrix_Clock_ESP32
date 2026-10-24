@@ -130,8 +130,15 @@
 // 8 = download failed / no WiFi), u32 bytes written, u32 total size. Notified every 4 KB.
 #define MC_OTA_STATUS_CHAR_UUID             "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FD" // O Read, Notify
 
+// The clock's BLE name (advertised in the scan response, also the GAP device name), up to 20 bytes of
+// UTF-8 without control characters. Read: the name in use. Write: a new name, applied to the next
+// advertising (after the phone disconnects) and kept in NVS; an empty write restores the default
+// "Tetris Clock XXXX", XXXX being the last two bytes of the Bluetooth MAC address in hex, so that
+// several clocks can be told apart when pairing.
+#define MC_DEVICE_NAME_CHAR_UUID            "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FE" // O Read, Write
+
 // Firmware update characteristics
-#define MC_VERSION_CHAR_UUID                "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
+#define MC_VERSION_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify
 #define MC_OTA_CONTROL_CHAR_UUID            "BEB5483E-36E1-4688-B7F5-EA07361B26A1" // M Write
 #define MC_OTA_DATA_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A2" // M Write
 
@@ -285,6 +292,10 @@ typedef struct {
     void (*get_update_info)(update_info_t *info);
     // Command characteristic (0x01..0x04)
     void (*command)(uint8_t command);
+    // BLE name: get the name in use into a buffer of at least NET_NAME_MAX_LEN + 1 bytes (the default
+    // one when none is set); set an empty name for the default, returns false if invalid
+    void (*get_name)(char *name_out);
+    bool (*set_name)(const char *name);
 } ble_network_callbacks_t;
 
 /**

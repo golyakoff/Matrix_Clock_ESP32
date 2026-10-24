@@ -3,6 +3,7 @@ validation, status values, commands while WiFi is off. The WiFi settings are nev
 invalid writes, which the clock must ignore."""
 
 import ipaddress
+import re
 import time
 
 import pytest
@@ -19,6 +20,33 @@ def test_time_zone(network, keep_time_zone):
 def test_time_zone_rejects(network, keep_time_zone):
     network.write(mc.TIME_ZONE, b"X" * 48)
     assert network.time_zone() == keep_time_zone
+
+
+DEFAULT_NAME = re.compile(r"^Tetris Clock [0-9A-F]{4}$")
+
+
+@pytest.fixture
+def keep_device_name(network):
+    if not network.has(mc.DEVICE_NAME):
+        pytest.skip("no device name characteristic")
+    name = network.read(mc.DEVICE_NAME)
+    yield name.decode("utf-8")
+    # the default name is not stored: write it back only if a custom one was set
+    network.write(mc.DEVICE_NAME, b"" if DEFAULT_NAME.match(name.decode("utf-8")) else name)
+
+
+def test_device_name(network, keep_device_name):
+    for name in ("Kitchen", "Часы кухня", "N" * 20):
+        network.write(mc.DEVICE_NAME, name.encode())
+        assert network.read(mc.DEVICE_NAME).decode("utf-8") == name
+    network.write(mc.DEVICE_NAME, b"")
+    assert DEFAULT_NAME.match(network.read(mc.DEVICE_NAME).decode("utf-8"))
+
+
+def test_device_name_rejects(network, keep_device_name):
+    for bad in (b"N" * 21, b"Tab\there", b"Del\x7f"):
+        network.write(mc.DEVICE_NAME, bad)
+        assert network.read(mc.DEVICE_NAME).decode("utf-8") == keep_device_name, f"{bad!r} was accepted"
 
 
 def test_wifi_settings_value(network):

@@ -3,11 +3,12 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Network settings kept in NVS: the WiFi connection and the time zone.
+// Network settings kept in NVS: the WiFi connection, the time zone and the clock's BLE name.
 
 #define NET_SSID_MAX_LEN        (32U)  // bytes, as in the 802.11 standard
 #define NET_PASSWORD_MAX_LEN    (64U)  // bytes, WPA2 passphrase (63) or raw PSK in hex (64)
 #define NET_TZ_MAX_LEN          (47U)  // bytes of a POSIX TZ string, e.g. "CET-1CEST,M3.5.0,M10.5.0/3"
+#define NET_NAME_MAX_LEN        (20U)  // bytes (UTF-8) of the BLE name; it shares the scan response
 
 #define NET_WIFI_PERIOD_MIN     (1U)   // hours
 #define NET_WIFI_PERIOD_MAX     (24U)  // hours
@@ -29,6 +30,7 @@ typedef struct {
     char ssid[NET_SSID_MAX_LEN + 1];
     char password[NET_PASSWORD_MAX_LEN + 1]; // empty for an open network
     char tz[NET_TZ_MAX_LEN + 1];
+    char name[NET_NAME_MAX_LEN + 1];        // BLE name, empty for the default "Tetris Clock XXXX"
 } net_settings_t;
 
 /**
@@ -57,6 +59,14 @@ bool net_settings_set_wifi(uint8_t mode, uint8_t period_hours, const char *ssid,
  * @return false if the string is empty or too long (nothing is changed then).
  */
 bool net_settings_set_tz(const char *tz);
+
+/**
+ * @brief Changes the BLE name in RAM; it is written to NVS by net_settings_flush().
+ *
+ * @param name the new name, empty for the default one.
+ * @return false if the name is too long or has control characters (nothing is changed then).
+ */
+bool net_settings_set_name(const char *name);
 
 /**
  * @brief Whether there are changes not written to NVS yet.

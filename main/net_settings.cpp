@@ -12,6 +12,7 @@ static const char* TAG = "NET_SETTINGS";
 #define NET_KEY_SSID            "wifi_ssid"
 #define NET_KEY_PASSWORD        "wifi_pass"
 #define NET_KEY_TZ              "tz"
+#define NET_KEY_NAME            "ble_name"
 
 #define NET_DEFAULT_PERIOD      (1U)
 
@@ -60,9 +61,11 @@ bool net_settings_init()
         if (_preferences.getString(NET_KEY_TZ, tz, sizeof(tz)) > 0 && tz[0])
             copy_string(_settings.tz, sizeof(_settings.tz), tz);
     }
+    if (_preferences.isKey(NET_KEY_NAME))
+        _preferences.getString(NET_KEY_NAME, _settings.name, sizeof(_settings.name));
 
-    ESP_LOGI(TAG, "WiFi mode %d, period %d h, SSID '%s', TZ '%s'",
-        _settings.mode, _settings.period_hours, _settings.ssid, _settings.tz);
+    ESP_LOGI(TAG, "WiFi mode %d, period %d h, SSID '%s', TZ '%s', name '%s'",
+        _settings.mode, _settings.period_hours, _settings.ssid, _settings.tz, _settings.name);
     return true;
 }
 
@@ -105,6 +108,21 @@ bool net_settings_set_tz(const char *tz)
     return true;
 }
 
+bool net_settings_set_name(const char *name)
+{
+    if (name == nullptr || strlen(name) > NET_NAME_MAX_LEN)
+        return false;
+    for (const char *c = name; *c; c++)
+        if ((uint8_t)*c < 0x20 || *c == 0x7f)
+            return false;
+
+    portENTER_CRITICAL(&_settings_mux);
+    copy_string(_settings.name, sizeof(_settings.name), name);
+    _settings_dirty = true;
+    portEXIT_CRITICAL(&_settings_mux);
+    return true;
+}
+
 bool net_settings_is_dirty()
 {
     return _settings_dirty;
@@ -129,7 +147,8 @@ bool net_settings_flush()
               _preferences.putUChar(NET_KEY_PERIOD, settings.period_hours) == 1 &&
               _preferences.putString(NET_KEY_SSID, settings.ssid) == strlen(settings.ssid) &&
               _preferences.putString(NET_KEY_PASSWORD, settings.password) == strlen(settings.password) &&
-              _preferences.putString(NET_KEY_TZ, settings.tz) == strlen(settings.tz);
+              _preferences.putString(NET_KEY_TZ, settings.tz) == strlen(settings.tz) &&
+              _preferences.putString(NET_KEY_NAME, settings.name) == strlen(settings.name);
     if (!ok)
         ESP_LOGE(TAG, "Error: writing the network settings into NVS failed.");
     return ok;

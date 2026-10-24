@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <esp_ota_ops.h>
+#include <esp_mac.h>
 #include <esp_log.h>
 
 // Project includes
@@ -836,6 +837,26 @@ void net_command(uint8_t command)
     }
 }
 
+void net_get_name(char *name_out)
+{
+    net_settings_t settings;
+    net_settings_get(&settings);
+    if (settings.name[0])
+    {
+        strcpy(name_out, settings.name);
+        return;
+    }
+    // The default name tells several clocks apart: the last two bytes of the Bluetooth MAC address
+    uint8_t mac[6] = { 0 };
+    esp_read_mac(mac, ESP_MAC_BT);
+    snprintf(name_out, NET_NAME_MAX_LEN + 1, BLE_SERVER_NAME " %02X%02X", mac[4], mac[5]);
+}
+
+bool net_set_name(const char *name)
+{
+    return net_settings_set_name(name);
+}
+
 static const ble_network_callbacks_t _network_callbacks = {
     .get_tz = net_get_tz,
     .set_tz = net_set_tz,
@@ -844,6 +865,8 @@ static const ble_network_callbacks_t _network_callbacks = {
     .get_wifi_status = wifi_get_status,
     .get_update_info = updater_get_info,
     .command = net_command,
+    .get_name = net_get_name,
+    .set_name = net_set_name,
 };
 
 // Starts WiFi and the updater; BLE has the network characteristics (main_ble_init())

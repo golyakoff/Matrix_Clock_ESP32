@@ -44,6 +44,7 @@ WIFI_NETWORKS = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fa"
 COMMAND = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fb"
 UPDATE_INFO = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fc"
 OTA_STATUS = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fd"
+DEVICE_NAME = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fe"  # optional, after v2.0.0
 VERSION = "beb5483e-36e1-4688-b7f5-ea07361b26a0"
 OTA_CONTROL = "beb5483e-36e1-4688-b7f5-ea07361b26a1"
 OTA_DATA = "beb5483e-36e1-4688-b7f5-ea07361b26a2"
