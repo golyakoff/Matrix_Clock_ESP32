@@ -44,6 +44,11 @@ public:
     bool IsPressed();
 
     /**
+     * @brief The pad reading (smoothed): lower when touched.
+     */
+    touch_value_t Read();
+
+    /**
      * @brief Disables ISR.
      */
     void Unload();

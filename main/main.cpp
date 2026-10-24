@@ -37,6 +37,10 @@
 // (40 with Arduino core 2.x units, the untouched level was ~70) was a ~40% drop. A 20% drop also
 // fired from noise picked up by the pad's wire, turning the display off and on by itself.
 #define TOUCH_THRESHOLD_PERCENT (40.0f)
+// The core decides "touched" from the pad reading smoothed by a weak filter (a quarter of each new
+// sample, every 10ms), so a few noisy samples in a row still read as a short touch. A real touch
+// lasts longer: the display is toggled only once the pad has been held this long.
+#define TOUCH_HOLD_MS (60U)
 
 #define OTA_FAILED_REBOOT_DELAY_MS (10000UL)
 
@@ -76,11 +80,13 @@ static Alarm alarmOn = Alarm(&alarm_on_callback);
 RealTimeClock rtc;
 
 void touch_callback_isr();
-static volatile uint32_t _touch_last_interrupt_time = 0;
-// Set by the touch ISR: the BLE notification about the new "show" state is sent from loop(), since
-// the BLE stack can't be called from an interrupt.
-static volatile bool _touch_show_changed = false;
-static const uint32_t _touch_debounce_delay = 100;
+void main_touch_tick(unsigned long now);
+// Set by the touch callback, acted on by main_touch_tick() in loop(): a touch toggles the display
+// only if held for TOUCH_HOLD_MS (and the BLE stack can't be called from the callback anyway).
+static volatile bool _touch_pressed = false;
+static volatile uint32_t _touch_presses = 0;
+static volatile uint32_t _touch_pressed_at = 0;
+static volatile uint32_t _touch_released_at = 0;
 static TouchSensor touchSensor = TouchSensor(TOUCH_PIN, touch_callback_isr, TOUCH_THRESHOLD_PERCENT);
 
 void main_rtc_init();
@@ -126,6 +132,7 @@ void setup()
     // both up by now (main_clock_init()).
     ble_set_animation_count(matrix_get_animation_count());
     touchSensor.Init();
+    ESP_LOGI(TAG, "Touch pad level %u", (unsigned)touchSensor.Read());
     main_network_init();
     ESP_LOGI(TAG, "Firmware version: %s", ota_get_current_version());
 }
@@ -160,11 +167,7 @@ void loop()
         if (!_firmware_confirmed && now >= FIRMWARE_CONFIRM_DELAY_MS)
             main_firmware_confirm();
 
-        if (_touch_show_changed) {
-            _touch_show_changed = false;
-            ESP_LOGI(TAG, "Touch: display %s", matrix_get_show() ? "on" : "off");
-            ble_update_matrix_show(matrix_get_show());
-        }
+        main_touch_tick(now);
     }
 }
 
@@ -932,17 +935,43 @@ void main_ble_init()
 
 IRAM_ATTR void touch_callback_isr()
 {
-    // The ISR fires on release too: act on the touch only
-    if (!touchSensor.IsPressed())
+    // Called on touch and on release
+    if (touchSensor.IsPressed()) {
+        _touch_pressed_at = millis();
+        _touch_presses = _touch_presses + 1;
+        _touch_pressed = true;
+    } else {
+        _touch_released_at = millis();
+        _touch_pressed = false;
+    }
+}
+
+// Toggles the display on a touch held for TOUCH_HOLD_MS, once per touch. A shorter one is taken for
+// noise and only logged.
+void main_touch_tick(unsigned long now)
+{
+    static uint32_t seen_presses = 0;
+    static bool waiting = false;
+
+    if (_touch_presses != seen_presses) {
+        seen_presses = _touch_presses;
+        waiting = true;
+    }
+    if (!waiting)
         return;
 
-    uint32_t current_millis = millis();
-    if (current_millis - _touch_last_interrupt_time < _touch_debounce_delay)
-        return;
-
-    bool new_matrix_show = !matrix_get_show();
-    matrix_set_show(new_matrix_show);
-    _touch_show_changed = true;
-
-    _touch_last_interrupt_time = current_millis;
+    if (_touch_pressed) {
+        if (now - _touch_pressed_at < TOUCH_HOLD_MS)
+            return;
+        waiting = false;
+        bool new_matrix_show = !matrix_get_show();
+        matrix_set_show(new_matrix_show);
+        ble_update_matrix_show(new_matrix_show);
+        ESP_LOGI(TAG, "Touch: display %s (pad level %u)", new_matrix_show ? "on" : "off",
+            (unsigned)touchSensor.Read());
+    } else {
+        waiting = false;
+        ESP_LOGI(TAG, "Touch ignored: released after %u ms",
+            (unsigned)(_touch_released_at - _touch_pressed_at));
+    }
 }

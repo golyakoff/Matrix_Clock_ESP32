@@ -18,6 +18,11 @@ bool TouchSensor::IsPressed()
     return touchInterruptGetLastStatus(_touch_pin);
 }
 
+touch_value_t TouchSensor::Read()
+{
+    return touchRead(_touch_pin);
+}
+
 void TouchSensor::Unload()
 {
     touchDetachInterrupt(_touch_pin);
