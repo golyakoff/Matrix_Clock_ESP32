@@ -83,6 +83,25 @@ BSD license, check license.txt for more information
   #include "soc/gpio_struct.h" // Matrix Clock: Arduino core 3.x no longer includes it for us
   #define GPIO_REG_SET(val) GPIO.out_w1ts = val
   #define GPIO_REG_CLEAR(val) GPIO.out_w1tc = val
+
+  // Matrix Clock: latches the shifted row and keeps the LEDs on for this many CPU cycles. At a low
+  // brightness the on time is only a few microseconds: timed with micros() (1 us steps) and switched
+  // with digitalWrite() (runs from flash in Arduino core 3.x) it varied from frame to frame, which
+  // showed as flicker. Direct register writes and the cycle counter, all in IRAM, keep it exact.
+  #include "esp_cpu.h"
+  #include "esp_rom_sys.h"
+  static void IRAM_ATTR PxMATRIX_latch_cycles(uint8_t latch_pin, uint8_t oe_pin, uint32_t on_cycles)
+  {
+    GPIO.out_w1ts = 1UL << latch_pin;
+    GPIO.out_w1tc = 1UL << latch_pin;
+    if (on_cycles == 0)
+      return;
+    uint32_t start = esp_cpu_get_cycle_count();
+    GPIO.out_w1tc = 1UL << oe_pin;
+    while (esp_cpu_get_cycle_count() - start < on_cycles)
+      ;
+    GPIO.out_w1ts = 1UL << oe_pin;
+  }
 #endif
 #ifdef __AVR__
   #define GPIO_REG_SET(val) (val < 8) ? PORTD |= _BV(val) : PORTB |= _BV(val-8)
@@ -1230,6 +1249,10 @@ void PxMATRIX::display(uint16_t show_time) {
   
   // How long do we keep the pixels on
   uint16_t latch_time = ((show_time*(1<<_display_color)*_brightness)/255/2);
+#ifdef ESP32
+  // Matrix Clock: the same in CPU cycles, without rounding it down to whole microseconds
+  uint32_t latch_cycles = (uint32_t)((uint64_t)show_time*(1<<_display_color)*_brightness*esp_rom_get_cpu_ticks_per_us()/255/2);
+#endif
 
   unsigned long start_time=0;
 #ifdef ESP8266
@@ -1288,7 +1311,11 @@ uint8_t *PxMATRIX_bufferp = PxMATRIX_buffer;
 #else
   SPI_TRANSFER(&PxMATRIX_bufferp[_display_color*_buffer_size+i*_send_buffer_size],_send_buffer_size);
 #endif
+#ifdef ESP32
+        PxMATRIX_latch_cycles(_LATCH_PIN, _OE_PIN, latch_cycles); // Matrix Clock: was latch(latch_time)
+#else
         latch(latch_time); 
+#endif
       }
     }
     
