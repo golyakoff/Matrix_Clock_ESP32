@@ -80,6 +80,10 @@ CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 CONFIG_ESP_WIFI_IRAM_OPT=n
 CONFIG_ESP_WIFI_RX_IRAM_OPT=n
 CONFIG_LWIP_IRAM_OPTIMIZATION=n
+# Time sync (wifi.cpp): several servers tried in turn, and the request goes out right away; the
+# random delay of up to 5 s (meant for many devices booting at once) ate a third of the wait
+CONFIG_LWIP_SNTP_MAX_SERVERS=3
+CONFIG_LWIP_SNTP_STARTUP_DELAY=n
 
 # Room in the 4MB build's 1.875 MB app slot (WiFi + TLS + BLE + the animations): only what the clock
 # uses. It is a WiFi client that talks HTTPS to GitHub and nothing else.

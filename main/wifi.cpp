@@ -17,13 +17,16 @@
 static const char* TAG = "WIFI";
 
 #define WIFI_HOSTNAME                   "tetris-clock"
-#define WIFI_SNTP_SERVER                "pool.ntp.org"
+// Tried in turn, SNTP_RECV_TIMEOUT (15 s) each: MSK-IX (stratum 1, GLONASS, anycast across Russia),
+// the Russian zone of the pool, the whole pool (outside Russia). At most CONFIG_LWIP_SNTP_MAX_SERVERS.
+#define WIFI_SNTP_SERVERS               { "ntp.msk-ix.ru", "ru.pool.ntp.org", "pool.ntp.org" }
+#define WIFI_SNTP_SERVER_COUNT          (3U)
 #define MC_WIFI_TASK_STACK_SIZE            (8192U)  // TLS handshake and JSON parsing of the update check
 #define MC_WIFI_TASK_PRIORITY              (3U)
 #define WIFI_FIRST_SESSION_DELAY_MS     (5000U)  // the first session after boot or a settings change
 #define WIFI_SESSION_CONNECT_MS         (30000U) // connection timeout of a session
 #define WIFI_SESSION_RETRY_MS           (10U * 60U * 1000U) // retry after a failed session
-#define WIFI_SNTP_WAIT_MS               (15000U)
+#define WIFI_SNTP_WAIT_MS               (50000U) // every server once, with some slack
 #define WIFI_SCAN_TIMEOUT_MS            (10000U)
 #define WIFI_SCAN_RECORDS_MAX           (80U)    // driver records read (with duplicates and hidden ones)
 #define WIFI_MIN_VALID_TIME             (1767225600) // 2026-01-01 UTC: anything earlier is not a real time
@@ -136,7 +139,7 @@ static void sntp_start()
 {
     if (_sntp_running)
         return;
-    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(WIFI_SNTP_SERVER);
+    esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(WIFI_SNTP_SERVER_COUNT, WIFI_SNTP_SERVERS);
     cfg.sync_cb = sntp_synced;
     if (esp_netif_sntp_init(&cfg) == ESP_OK)
         _sntp_running = true;
