@@ -435,6 +435,14 @@ uint8_t matrix_get_animation_count()
 // This method is needed for driving the display
 void IRAM_ATTR display_updater()
 {
+    // A flash write on the other core (an NVS write by NimBLE when a phone bonds, by the PHY
+    // calibration...) suspends the scheduler of this core and masks this interrupt; it fires as soon
+    // as the interrupts are unmasked, while the scheduler is still suspended, and the SPI driver's
+    // mutex take in PxMatrix then asserts. Skip that one refresh: not every flash write goes through
+    // matrix_pause_timers().
+    if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING)
+        return;
+
     display.display(10);
 }
 
