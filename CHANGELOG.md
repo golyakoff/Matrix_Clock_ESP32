@@ -1,17 +1,22 @@
-Release 2.0.0
+Release 2.0.1
 
-- [x] **WiFi** (optional, off by default): set up in the app, which picks the network from the ones the clock hears. Every 1..24 hours (1 by default) the clock connects as a client, syncs its time from the internet (SNTP) into the RTC at the second boundary, checks GitHub for a newer firmware and disconnects. The local time comes from the phone's time zone, which the app keeps on the clock as a POSIX TZ string, so daylight saving time is applied by the clock itself
+- [x] **WiFi** (optional, off by default): set up in the app, which picks the network from the ones the clock hears. Every 1..24 hours (1 by default) the clock connects as a client, syncs its time from the internet (SNTP) into the RTC at the second boundary, checks GitHub for a newer firmware and disconnects. The local time comes from the phone's time zone, which the app keeps on the clock as a POSIX TZ string, so daylight saving time is applied by the clock itself. The time comes from three NTP servers
 - [x] **Firmware update from the internet**: the clock downloads and installs a newer release by itself when asked from the app (never automatically) — `manifest.json` of the latest release names the file of each build and its SHA-256, checked before the clock switches to the new firmware. The progress is shown on the clock and in the app. BLE updates from the phone work as before, with WiFi paused for them
+- [x] **Beta versions**: a `vX.Y.Z-betaN` tag publishes a beta as a pre-release, and the fixed `beta` pre-release carries its `manifest.json`. A clock with the beta channel on (a switch in the app's firmware card, kept in the clock) reads both manifests and takes the higher version; the stable channel never sees betas. Betas also ship the `debug_*` application for testers (`tools/release_beta.sh`, `tools/release.sh`)
+- [x] **Clock name**: a new characteristic sets the BLE name the clock advertises (up to 20 bytes, kept in NVS); the default is "Tetris Clock XXXX", XXXX from the clock's Bluetooth address, so several clocks can be told apart
 - [x] **Rollback**: a new firmware is confirmed after 30 seconds of running; if it crashes or reboot-loops before that, the bootloader goes back to the previous one
 - [x] Seven new BLE characteristics (time zone, WiFi settings/status/networks, command, update info, OTA status), documented in `main/include/ble.h`; all existing ones are unchanged, so older app versions keep working. The WiFi settings are written over an encrypted link only: the phone pairs with the clock ("Just Works", no PIN) on the first save; the bond survives reboots
-- [x] The display now turns on/off within 10 ms of a touch (and of a brightness change from the app) instead of up to a second later — the slow reaction invited a second touch that turned it back. The touch pad acts on the touch only, not on the release
+- [x] The display now turns on/off within 10 ms of a touch (and of a brightness change from the app) instead of up to a second later — the slow reaction invited a second touch that turned it back. A touch counts once it is held for 60 ms, which filters out the short phantom triggers of the pad; it acts on the touch, not on the release
+- [x] Steadier picture at low brightness: the LED on time is now timed in CPU cycles, which removes the flicker at brightness 5 and below, and the column drivers are warmed up before each refresh, so the middle row is no longer dimmer than the rest and does not flicker at brightness 1..3
+- [x] After the GOLYAKOFF intro the digits start falling right away, without a flash of blocks in place of the time
 - [x] BLE moved from Bluedroid to NimBLE, and the firmware from PlatformIO (Arduino core 2.0.17) to ESP-IDF 5.5.6 with the Arduino core 3.3.12 as a component (`tools/build.sh <variant>`, see the README). Release builds are optimized for size; the display code keeps `-O2`. The 4MB build still has all ten animations (1.77 MB of its 1.875 MB slot)
 - [x] Fixed: an upload over BLE that lost the phone midway left the clock waiting for it with a dark display until it was unplugged; now the clock gives up and reboots into its firmware, as after any failed update
 - [x] Fixed: the month in the time string characteristic (`MC_TIME_STR_CHAR_UUID`) was 0-based (October was `-09-`)
 - [x] Tests: hardware-in-the-loop tests in `test/hil` (pytest + bleak, the PC plays the phone over BLE, optionally reads the log over USB — the whole BLE protocol, settings persistence, time keeping, WiFi, BLE upload and rollback, the touch pad) and host tests in `test/host`
-- [x] Releases no longer include the `debug_4mb` build; it can be built from the sources for local runs. Each release now also ships `manifest.json` (`tools/make_manifest.py`)
+- [x] Releases no longer include the `debug_4mb` build (betas still carry the debug application); it can be built from the sources for local runs. Each release now also ships `manifest.json` (`tools/make_manifest.py`)
+- [x] v2.0.0 was never published: the first v2 release is v2.0.1, after the betas v2.0.1-beta1/beta2
 
-**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.8.1...v2.0.0
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v1.8.1...v2.0.1
 
 Release 1.8.1
 
