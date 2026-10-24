@@ -15,4 +15,13 @@ menu "Matrix Clock"
             (tetris-clock_<version>_<variant>_fw.bin), also the build key
             the clock looks for in the release manifest.
 
+    config MC_UPDATE_MANIFEST_URL
+        string "Update manifest URL"
+        default "https://github.com/golyakoff/Matrix_Clock_ESP32/releases/latest/download/manifest.json"
+        help
+            Where the clock reads the release manifest of the update from the
+            internet (updater.h). Release builds read the latest GitHub release;
+            debug builds read the "ota-test" pre-release, so the update can be
+            tested without publishing a release (tools/make_test_update.sh).
+
 endmenu

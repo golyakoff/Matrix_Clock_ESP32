@@ -20,7 +20,9 @@ static const char* TAG = "UPDATER";
 #define UPDATER_HTTP_TIMEOUT_MS     (15000U)
 #define UPDATER_HTTP_BUFFER_SIZE    (4096U)  // GitHub redirect headers are long
 #define UPDATER_CHUNK_SIZE          (512U)   // ota_write() takes up to 512 bytes, as a BLE chunk
-#define UPDATER_OTA_WRITE_WAIT_MS   (5000U)  // the flash writer erases sectors as it goes
+// The flash writer erases as it goes, a 64 KB block at a time (Update), which can take a while:
+// the download just waits for it, as FireLamp_ESP32 does (TCP holds the data meanwhile)
+#define UPDATER_OTA_WRITE_WAIT_MS   (30000U)
 #define UPDATER_PROGRESS_STEP       (4096U)  // OTA status notifications while downloading
 
 static update_info_t _info = {};

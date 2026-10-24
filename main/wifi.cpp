@@ -445,6 +445,15 @@ bool wifi_init(wifi_status_cb_t status_cb, wifi_scan_cb_t scan_cb, wifi_time_cb_
     _scan_cb = scan_cb;
     _time_cb = time_cb;
 
+    // Debug builds log at DEBUG level: the network stack would flood the serial port (several lines
+    // per 512 bytes of a download), and a task that logs waits for the port, the OTA writer too
+    static const char *const chatty_tags[] = {
+        "wifi", "HTTP_CLIENT", "esp-tls", "esp-tls-mbedtls", "transport_base", "esp-x509-crt-bundle",
+        "event", "esp_netif_lwip", "esp_netif_handlers", "wifi_init_default"
+    };
+    for (const char *tag : chatty_tags)
+        esp_log_level_set(tag, ESP_LOG_INFO);
+
     _events = xEventGroupCreate();
     _scan_mutex = xSemaphoreCreateMutex();
     if (!_events || !_scan_mutex)

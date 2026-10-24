@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-# The firmware version, e.g. "v2.0.0": the app compares it with the GitHub release tags
-file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/version.txt PROJECT_VER LIMIT_COUNT 1)
+# The firmware version, e.g. "v2.0.0": the app compares it with the GitHub release tags.
+# -DMC_VERSION=v2.0.1 overrides it for a test update (tools/make_test_update.sh).
+if(DEFINED MC_VERSION)
+    set(PROJECT_VER ${MC_VERSION})
+else()
+    file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/version.txt PROJECT_VER LIMIT_COUNT 1)
+endif()
 # reconfigure (and rebuild with the new version) when version.txt changes
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/version.txt)
 

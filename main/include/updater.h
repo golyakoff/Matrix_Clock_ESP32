@@ -2,10 +2,12 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <sdkconfig.h>
 
 // Firmware update from the internet (GitHub releases), ported from FireLamp_ESP32 (main/updater.c).
 //
-// The clock reads the release manifest (UPDATER_MANIFEST_URL) on every WiFi session and on request,
+// The clock reads the release manifest (CONFIG_MC_UPDATE_MANIFEST_URL: the latest GitHub release,
+// the "ota-test" pre-release for debug builds) on every WiFi session and on request,
 // and reports whether a newer version is available. The update is installed only on request
 // (Command characteristic). The firmware is written by the ota module, as a BLE upload is.
 //
@@ -21,7 +23,7 @@
 // The build key is CONFIG_MC_BUILD_VARIANT. A clock whose build is not in the manifest is reported
 // as up to date.
 
-#define UPDATER_MANIFEST_URL "https://github.com/golyakoff/Matrix_Clock_ESP32/releases/latest/download/manifest.json"
+#define UPDATER_MANIFEST_URL CONFIG_MC_UPDATE_MANIFEST_URL
 
 typedef enum {
     update_unknown = 0,     // not checked since boot

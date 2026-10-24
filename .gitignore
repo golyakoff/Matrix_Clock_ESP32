@@ -10,3 +10,4 @@ sdkconfig.old
 tools/__pycache__
 release/
 release_notes.md
+release_test/

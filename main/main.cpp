@@ -651,11 +651,17 @@ void ota_progress_callback(size_t received, size_t total) {
     matrix_set_ota_progress(overall_percent);
 
     #if CONFIG_LOG_DEFAULT_LEVEL >= ESP_LOG_DEBUG
-    ESP_LOGD(TAG,
-        "OTA Progress: %d/%d bytes (%.1f%%)",
-        received,
-        total,
-        overall_percent);
+    // Once per percent, not per 512-byte chunk: the serial port can't keep up with the latter
+    static int last_logged = -1;
+    if ((int)overall_percent != last_logged || received == total)
+    {
+        last_logged = (int)overall_percent;
+        ESP_LOGD(TAG,
+            "OTA Progress: %d/%d bytes (%.1f%%)",
+            received,
+            total,
+            overall_percent);
+    }
     #endif
 }
 
@@ -769,7 +775,12 @@ bool update_ota_begin(size_t firmware_size)
         ota_completion_callback,
         matrix_pause_timers,
         matrix_resume_timers))
+    {
+        // Blank the panel for the download, as for a BLE upload: with the refresh ISR running the
+        // download crawled (~7 KB/s) and the OTA writer task stalled until the update failed
+        matrix_ota_freeze_display();
         return true;
+    }
 
     // Nothing was written: leave the OTA screen through the usual failure path (reboot in 10 s)
     ota_completion_callback(false, "OTA start failed");

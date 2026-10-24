@@ -6,3 +6,5 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/4MB.csv"
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+# The update from the internet comes from the "ota-test" pre-release (tools/make_test_update.sh)
+CONFIG_MC_UPDATE_MANIFEST_URL="https://github.com/golyakoff/Matrix_Clock_ESP32/releases/download/ota-test/manifest.json"

@@ -30,7 +30,10 @@ static ota_flash_write_end_cb_t _on_flash_write_end_cb = nullptr;
 #define OTA_WRITE_QUEUE_DEPTH    (8U)
 #define OTA_WRITE_CHUNK_MAX      (512U)
 #define OTA_WRITER_TASK_STACK    (8192U)
-#define OTA_WRITER_TASK_PRIORITY (1U)
+// Above loopTask (priority 1, core 1 too), which polls without ever blocking: at the same priority
+// the writer only got every other time slice, and an update from the internet stalled behind it.
+// The writer itself mostly waits on the queue. FireLamp_ESP32 runs its writer at 3 as well.
+#define OTA_WRITER_TASK_PRIORITY (3U)
 
 // Yield the writer task briefly after every flash write so the BLE core (core 0) gets a flash-free
 // window to service the connection. Each Update.write() flushes to flash via spi_flash, which stalls
