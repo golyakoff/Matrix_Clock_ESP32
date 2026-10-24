@@ -33,8 +33,9 @@
 
 #define TOUCH_PIN   (12U)
 // A touch makes the pad reading drop well below its untouched level; the old absolute threshold
-// (40 with Arduino core 2.x units, the untouched level was ~70) was a ~40% drop
-#define TOUCH_THRESHOLD_PERCENT (20.0f)
+// (40 with Arduino core 2.x units, the untouched level was ~70) was a ~40% drop. A 20% drop also
+// fired from noise picked up by the pad's wire, turning the display off and on by itself.
+#define TOUCH_THRESHOLD_PERCENT (40.0f)
 
 #define OTA_FAILED_REBOOT_DELAY_MS (10000UL)
 
@@ -43,6 +44,10 @@
 #define FIRMWARE_CONFIRM_DELAY_MS (30000UL)
 
 static const char* TAG = "MAIN";
+
+// The Arduino core frees the BLE controller memory in initArduino() unless a BLE library claims it:
+// its own BLE library does, esp-nimble-cpp does not, and NimBLE's controller init then fails
+extern "C" bool bleInUse(void) { return true; }
 
 static unsigned long _10ms_loop_due = 0;
 static bool _ota_failed = false;
@@ -156,6 +161,7 @@ void loop()
 
         if (_touch_show_changed) {
             _touch_show_changed = false;
+            ESP_LOGI(TAG, "Touch: display %s", matrix_get_show() ? "on" : "off");
             ble_update_matrix_show(matrix_get_show());
         }
     }
