@@ -152,8 +152,8 @@ done
 P="$PREFIX"
 BETA_NOTE=""
 if [ ${#FW_ONLY_VARIANTS[@]} -gt 0 ]; then
-  BETA_NOTE='> ⚠️ **Beta.** Offered only to clocks with the beta update channel on (the app's
-> firmware card). It also has the application of the debug builds (`*_debug_*_fw.bin`) for testers
+  BETA_NOTE='> ⚠️ **Beta.** Offered only to clocks with the beta update channel on (the firmware
+> card in the app). It also has the application of the debug builds (`*_debug_*_fw.bin`) for testers
 > running them.
 '
 fi
