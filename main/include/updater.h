@@ -59,6 +59,8 @@ typedef enum {
     updater_ota_err_flash = 3,      // writing the firmware failed
     updater_ota_err_sha = 5,        // the downloaded file does not match the manifest
     updater_ota_err_download = 8,   // no WiFi, the manifest or the file could not be downloaded
+    updater_ota_err_no_build = 9,   // with updater_ota_no_update: a newer release has no build of this
+                                    // clock's variant (a custom build), install over BLE
 } updater_ota_error_t;
 
 /**

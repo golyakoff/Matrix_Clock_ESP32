@@ -1,3 +1,10 @@
+Release 2.1.2
+
+- [x] A clock with a debug build updates over WiFi to the release build of its flash size (`debug_16mb` takes `release_16mb`), as an update over BLE from the phone does; before, it found "no newer version", releases having no debug builds
+- [x] When a newer release has no build for this clock at all (a custom build), installing over WiFi says so (OTA status: no update, error 9), so the app can point to the update over BLE
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v2.1.1...v2.1.2
+
 Release 2.1.1
 
 - [x] A connection nobody uses is dropped after 5 minutes (no reads, writes or subscriptions), so the clock advertises again and other phones see it: Android can keep the link to a paired clock open after the app is gone. A phone waiting for notifications is kept

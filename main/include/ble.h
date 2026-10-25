@@ -127,7 +127,8 @@
 // Progress of a firmware installation from the internet (Command 0x03): u8 state (0 = idle,
 // 1 = downloading and writing, 2 = success: the clock reboots, 3 = error, 4 = checking for an update,
 // 5 = no update available), u8 error (state 3: 1 = busy, 3 = flash write error, 5 = SHA-256 mismatch,
-// 8 = download failed / no WiFi), u32 bytes written, u32 total size. Notified every 4 KB.
+// 8 = download failed / no WiFi; state 5: 9 = a newer release has no build for this clock, a custom
+// build: update over BLE), u32 bytes written, u32 total size. Notified every 4 KB.
 #define MC_OTA_STATUS_CHAR_UUID             "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FD" // O Read, Notify
 
 // The clock's BLE name (advertised in the scan response, also the GAP device name), up to 20 bytes of

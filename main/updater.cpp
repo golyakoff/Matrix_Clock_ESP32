@@ -47,6 +47,8 @@ typedef struct {
 static release_t _releases[2];
 // the release to install: one of _releases, nullptr if none has this build
 static const release_t *_release = nullptr;
+// the last check found a newer release without a build of this clock's variant
+static bool _newer_without_build = false;
 
 static void set_state(update_state_t s)
 {
@@ -138,6 +140,23 @@ static esp_http_client_handle_t http_client(const char *url)
     return esp_http_client_init(&cfg);
 }
 
+// The build of this clock in a manifest's "builds". A debug build takes the release one of its flash
+// size when the release has no debug build (releases never do; the same partitions), as an update over
+// BLE from the phone does
+static cJSON *find_build(cJSON *builds, const char *version)
+{
+    cJSON *build = cJSON_GetObjectItem(builds, CONFIG_MC_BUILD_VARIANT);
+    static const char debug[] = "debug_";
+    if (build || strncmp(CONFIG_MC_BUILD_VARIANT, debug, sizeof(debug) - 1))
+        return build;
+    char release[sizeof(CONFIG_MC_BUILD_VARIANT) + 2];
+    snprintf(release, sizeof(release), "release_%s", CONFIG_MC_BUILD_VARIANT + sizeof(debug) - 1);
+    build = cJSON_GetObjectItem(builds, release);
+    if (build)
+        ESP_LOGI(TAG, "Release %s has no build " CONFIG_MC_BUILD_VARIANT ", taking %s", version, release);
+    return build;
+}
+
 // Downloads and parses the manifest at url into out
 static esp_err_t read_manifest(const char *url, release_t *out)
 {
@@ -180,7 +199,7 @@ static esp_err_t read_manifest(const char *url, release_t *out)
     }
     strcpy(out->version, version);
 
-    build = cJSON_GetObjectItem(cJSON_GetObjectItem(json, "builds"), CONFIG_MC_BUILD_VARIANT);
+    build = find_build(cJSON_GetObjectItem(json, "builds"), version);
     if (!build)
     {
         // a custom build: official releases are not for this clock
@@ -193,7 +212,7 @@ static esp_err_t read_manifest(const char *url, release_t *out)
     if (!build_url || strlen(build_url) >= sizeof(out->url) || strncmp(build_url, "https://", 8)
             || !cJSON_IsNumber(build_size) || cJSON_GetNumberValue(build_size) < 1)
     {
-        ESP_LOGW(TAG, "Invalid build " CONFIG_MC_BUILD_VARIANT " in manifest");
+        ESP_LOGW(TAG, "Invalid build for " CONFIG_MC_BUILD_VARIANT " in manifest");
         goto exit;
     }
 
@@ -252,6 +271,9 @@ static esp_err_t check(bool report_status)
 
     const char *current = esp_app_get_description()->version;
     bool newer = _release && version_num(_release->version) > version_num(current);
+    _newer_without_build = !newer && version_num(latest->version) > version_num(current);
+    if (_newer_without_build)
+        ESP_LOGW(TAG, "Release %s has no build " CONFIG_MC_BUILD_VARIANT ", update over BLE", latest->version);
     ESP_LOGI(TAG, "Current %s, released %s%s", current, shown->version, newer ? ": update available" : "");
     set_state(newer ? update_available : update_up_to_date);
     return ESP_OK;
@@ -420,7 +442,7 @@ void updater_run(bool regular_check)
         return;
     if (_info.state != update_available)
     {
-        report(updater_ota_no_update, updater_ota_err_none);
+        report(updater_ota_no_update, _newer_without_build ? updater_ota_err_no_build : updater_ota_err_none);
         return;
     }
     if (install() != ESP_OK)
