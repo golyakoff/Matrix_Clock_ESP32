@@ -83,6 +83,52 @@ struct bonded_phone_t
 };
 static std::vector<bonded_phone_t> _bonded;
 static esp_timer_handle_t _auth_timer = nullptr;
+
+// Idle connections (BLE_IDLE_TIMEOUT_S). Activity: a read or a write of a characteristic; an app
+// subscribed to a notification is waiting for it, so it is not idle either. Ported from
+// FireLamp_ESP32. The subscribed characteristics are a bit mask over _notifying_chars.
+static volatile int64_t _last_activity_us = 0;
+static portMUX_TYPE _subscriptions_mux = portMUX_INITIALIZER_UNLOCKED;
+static NimBLECharacteristic* _notifying_chars[16];
+static uint8_t _notifying_count = 0;
+static uint32_t _subscriptions = 0;
+
+static void ble_touch()
+{
+    _last_activity_us = esp_timer_get_time();
+}
+
+// Base of the characteristic callbacks: keeps track of the subscriptions
+class IdleTrackingCallbacks: public NimBLECharacteristicCallbacks
+{
+public:
+    void onSubscribe(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo, uint16_t subValue) override
+    {
+        ble_touch();
+        portENTER_CRITICAL(&_subscriptions_mux);
+        uint8_t i = 0;
+        while (i < _notifying_count && _notifying_chars[i] != pCharacteristic)
+            i++;
+        if (i == _notifying_count && i < sizeof(_notifying_chars) / sizeof(_notifying_chars[0]))
+            _notifying_chars[_notifying_count++] = pCharacteristic;
+        if (i < _notifying_count)
+        {
+            if (subValue)
+                _subscriptions |= 1UL << i;
+            else
+                _subscriptions &= ~(1UL << i);
+        }
+        portEXIT_CRITICAL(&_subscriptions_mux);
+    }
+};
+IdleTrackingCallbacks _idleTrackingCallbacks;
+
+static void clear_subscriptions()
+{
+    portENTER_CRITICAL(&_subscriptions_mux);
+    _subscriptions = 0;
+    portEXIT_CRITICAL(&_subscriptions_mux);
+}
 static ble_on_new_phone_t _on_new_phone = nullptr;
 
 // The advertised (and GAP) name: BLE_SERVER_NAME, or the one from the network callbacks
@@ -214,6 +260,8 @@ class MyServerCallbacks: public NimBLEServerCallbacks
         _conn_handle = connInfo.getConnHandle();
         _have_conn_handle = true;
         _authorized = false;
+        clear_subscriptions();
+        ble_touch();
         ESP_LOGI(TAG, "BLE device connected");
         if (_auth_timer)
             esp_timer_start_once(_auth_timer, BLE_AUTH_TIMEOUT_S * 1000000ULL);
@@ -229,6 +277,7 @@ class MyServerCallbacks: public NimBLEServerCallbacks
         _authorized = false;
         if (_auth_timer)
             esp_timer_stop(_auth_timer);
+        clear_subscriptions();
         ESP_LOGI(TAG, "BLE device disconnected, reason %d", reason);
         if (_on_disconnect)
             _on_disconnect();
@@ -274,8 +323,9 @@ class MyServerCallbacks: public NimBLEServerCallbacks
 MyServerCallbacks _myServerCallbacks;
 
 // BLE Characteristic Callbacks class
-class MyCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
+class MyCharacteristicCallbacks: public IdleTrackingCallbacks {
     void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        ble_touch();
         // Between a rejected pairing and the disconnect the link is encrypted, but not let in
         if (!_authorized)
             return;
@@ -589,6 +639,7 @@ class MyCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
 
     void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override
     {
+        ble_touch();
         if(pCharacteristic == _mctnc_char)
         {
             bool show = _get_show_on_ble_read();
@@ -815,8 +866,9 @@ static void set_update_info_value()
     _mcui_char->setValue(value, len);
 }
 
-class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
+class NetworkCharacteristicCallbacks: public IdleTrackingCallbacks {
     void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        ble_touch();
         if (!_authorized)
             return;
         NimBLEAttValue value = pCharacteristic->getValue();
@@ -879,6 +931,7 @@ class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
 
     void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override
     {
+        ble_touch();
         if (pCharacteristic == _mctz_char)
         {
             char tz[NET_TZ_MAX_LEN + 1] = { 0 };
@@ -962,6 +1015,7 @@ static void ble_add_network_characteristics(NimBLEService *bleService)
 
     _mcos_char = bleService->createCharacteristic(MC_OTA_STATUS_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
     _mcos_char->setValue(_ota_status_value, sizeof(_ota_status_value));
+    _mcos_char->setCallbacks(&_idleTrackingCallbacks);
 
     _mcdn_char = bleService->createCharacteristic(MC_DEVICE_NAME_CHAR_UUID, RW, NET_NAME_MAX_LEN);
     _mcdn_char->setCallbacks(&_networkCharacteristicCallbacks);
@@ -1107,6 +1161,7 @@ void ble_init(
     
     ESP_LOGI(TAG, "Add MatrixClock Time String characteristic...");
     _mcts_char = bleService->createCharacteristic(MC_TIME_STR_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
+    _mcts_char->setCallbacks(&_idleTrackingCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Turn Off Alarm characteristic...");
     _mctofa_char = bleService->createCharacteristic(MC_TURN_OFF_ALARM_CHAR_UUID, RW);
@@ -1168,6 +1223,7 @@ void ble_init(
     // Set right away, not only on connect: a read may come before onConnect() has run. The one
     // characteristic open without pairing: the app reads it to know whether to pair at all.
     _mcfv_char->setValue(_get_fw_ver_ble_read());
+    _mcfv_char->setCallbacks(&_idleTrackingCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock OTA Control characteristic...");
     _mcotac_char = bleService->createCharacteristic(MC_OTA_CONTROL_CHAR_UUID, W);
@@ -1208,6 +1264,25 @@ void ble_update_rtc_time(struct tm *dt)
         {
             ESP_LOGW(TAG, "Not connected and not advertising: advertising again");
             start_advertising();
+        }
+    }
+
+    // Once a second: drop a connection nobody uses (BLE_IDLE_TIMEOUT_S)
+    static int last_idle_check = -1;
+    if (now != last_idle_check)
+    {
+        last_idle_check = now;
+        portENTER_CRITICAL(&_subscriptions_mux);
+        const bool subscribed = _subscriptions != 0;
+        portEXIT_CRITICAL(&_subscriptions_mux);
+        if (subscribed)
+            ble_touch();
+        else if (_device_connected && _have_conn_handle && _pServer &&
+                 esp_timer_get_time() - _last_activity_us >= BLE_IDLE_TIMEOUT_S * 1000000LL)
+        {
+            ESP_LOGW(TAG, "Connection idle for %d s, disconnecting", BLE_IDLE_TIMEOUT_S);
+            ble_touch(); // one disconnect request, not one a second until it is done
+            _pServer->disconnect(_conn_handle);
         }
     }
 

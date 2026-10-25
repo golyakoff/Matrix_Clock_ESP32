@@ -24,6 +24,9 @@ def pytest_addoption(parser):
                 help="also install the latest release from the internet if it is newer (needs --wifi)")
     g.addoption("--manual", action="store_true", help="also run the tests that need a person at the clock "
                                                       "(touch pad); run with -s")
+    g.addoption("--pairing", action="store_true", help="also run the pairing window tests: they make the PC "
+                                                       "forget its pairing and pair again (needs --port)")
+    g.addoption("--slow", action="store_true", help="also run the tests that wait for the idle timeout (5 min each)")
 
 
 MARKS = {
@@ -32,6 +35,8 @@ MARKS = {
     "wifi": "uses WiFi (--wifi)",
     "internet_update": "installs a release from the internet (--internet-update)",
     "manual": "needs a person at the clock (--manual)",
+    "pairing": "forgets and redoes the PC's pairing (--pairing, --port)",
+    "slow": "waits minutes (--slow)",
 }
 
 
@@ -48,6 +53,8 @@ def pytest_collection_modifyitems(config, items):
         "wifi": None if config.getoption("--wifi") else "needs --wifi",
         "internet_update": None if config.getoption("--internet-update") else "needs --internet-update",
         "manual": None if config.getoption("--manual") else "needs --manual",
+        "pairing": None if config.getoption("--pairing") and port else "needs --pairing and --port",
+        "slow": None if config.getoption("--slow") else "needs --slow",
     }
     for item in items:
         for mark, reason in skip.items():
@@ -76,9 +83,30 @@ def clock(request, log):
             pytest.exit("no advertising Matrix Clock found (is the phone app connected? the clock takes one "
                         "connection); pass --clock ADDRESS", returncode=2)
     c = mc.Clock(address)
-    c.connect()
+    # not subscribed yet: the subscriptions fail on a link the clock does not let in
+    c.connect(subscribe=False)
+    if c.let_in():
+        c.subscribe()
+    elif log:
+        # Firmware v2.1.0+ pairs a new phone only while its pairing window is open
+        pair_in_window(c, log)
+    else:
+        c.close()
+        pytest.exit("the clock does not let the PC in: open its pairing window (hold the touch pad for "
+                    "5 s, or power it on) and run the tests within 2 minutes; or pass --port", returncode=2)
     yield c
     c.close()
+
+
+def pair_in_window(clock, log):
+    """Reset the clock, which opens its pairing window, and pair again from scratch"""
+    clock.disconnect()
+    clock.unpair()
+    m = log.mark()
+    log.reset()
+    log.wait_for(log.BOOT, m, timeout=10)
+    clock.reconnect(pair=True)
+    assert clock.let_in(), "the clock does not let the PC in although its pairing window is open"
 
 
 @pytest.fixture(scope="session")
@@ -136,6 +164,6 @@ def no_crash(request, log):
     time.sleep(0.2)
     crashes = log.crashes(m)
     assert not crashes, "firmware crash:\n" + "\n".join(crashes)
-    if not ({"reboot", "ota", "internet_update"} & set(request.keywords)):
+    if not ({"reboot", "ota", "internet_update", "pairing"} & set(request.keywords)):
         boots = log.find(log.BOOT, m)
         assert not boots, "unexpected reboot:\n" + "\n".join(boots)

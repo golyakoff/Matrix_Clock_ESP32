@@ -12,7 +12,9 @@ import calendar
 import os
 import queue
 import re
+import shutil
 import struct
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -70,6 +72,13 @@ KEEP_PASSWORD = 0xFF
 ALARM_ACTIVE = 0x0800
 
 VERSION_RX = re.compile(r"^v?\d+\.\d+\.\d+")
+
+# Pairing (firmware v2.1.0+, main/include/ble.h): a new phone pairs only while the window is open,
+# for this long after power on or after a long touch of the pad; a phone that is not let in within
+# AUTH_TIMEOUT_S is dropped, and so is a connection nobody uses for IDLE_TIMEOUT_S (v2.1.1+)
+PAIRING_WINDOW_S = 120
+AUTH_TIMEOUT_S = 30
+IDLE_TIMEOUT_S = 300
 
 
 ################################################################################
@@ -288,10 +297,10 @@ class Clock:
 
     # connection
 
-    def connect(self, pair=True):
-        self._run(self._connect(pair), timeout=self.timeout * 3)
+    def connect(self, pair=True, subscribe=True):
+        self._run(self._connect(pair, subscribe), timeout=self.timeout * 3)
 
-    async def _connect(self, pair):
+    async def _connect(self, pair, subscribe=True):
         self.client = BleakClient(self.address, timeout=self.timeout)
         await self.client.connect()
         if pair:
@@ -312,9 +321,30 @@ class Clock:
             except Exception:  # noqa: BLE001 - keep the default MTU
                 pass
         self.chars = {c.uuid.lower() for c in svc.characteristics}
+        if subscribe:
+            await self._subscribe()
+
+    async def _subscribe(self):
         for u in NOTIFYING:
             if u in self.chars:
                 await self.client.start_notify(u, self._make_handler(u))
+
+    async def _unsubscribe(self):
+        for u in NOTIFYING:
+            if u in self.chars:
+                try:
+                    await self.client.stop_notify(u)
+                except (BleakError, KeyError, ValueError):
+                    pass  # not subscribed
+
+    def subscribe(self):
+        """Notifications of all the notifying characteristics (they need the pairing, but the version)"""
+        self._run(self._subscribe())
+
+    def unsubscribe(self):
+        """As the app does before it disconnects: the clock keeps a bonded client's subscriptions and
+        restores them on its next connection, which then never counts as idle"""
+        self._run(self._unsubscribe())
 
     def _make_handler(self, u):
         def handler(_, data):
@@ -328,6 +358,27 @@ class Clock:
             except Exception:  # noqa: BLE001 - already gone
                 pass
 
+    def unpair(self):
+        """Forget the PC's keys for the clock (the clock keeps its own until it gets new ones)"""
+        async def unpair():
+            client = self.client or BleakClient(self.address, timeout=self.timeout)
+            try:
+                await client.unpair()
+            except (BleakError, NotImplementedError):
+                pass  # not paired
+        self._run(unpair())
+        # bleak cannot unpair a device it has not connected in this run; BlueZ can
+        if shutil.which("bluetoothctl"):
+            subprocess.run(["bluetoothctl", "remove", self.address], capture_output=True, timeout=10)
+
+    def let_in(self):
+        """Whether the clock lets this connection in: a pairing-protected read works"""
+        try:
+            self.read(SHOW)
+            return True
+        except Exception:  # noqa: BLE001 - an ATT error, or the clock dropped the link
+            return False
+
     def wait_gone(self, timeout=30.0):
         """Wait until the clock drops the connection (it reboots)"""
         deadline = time.monotonic() + timeout
@@ -337,8 +388,9 @@ class Clock:
             time.sleep(0.2)
         raise TimeoutError(f"the clock is still connected after {timeout} s")
 
-    def reconnect(self, wait_s=60.0):
-        """After a reboot: wait until the clock advertises again and connect"""
+    def reconnect(self, wait_s=60.0, pair=False):
+        """After a reboot: wait until the clock advertises again and connect (pair: a new pairing, which
+        must come before the subscriptions)"""
         self.disconnect()
         deadline = time.monotonic() + wait_s
         last = None
@@ -346,11 +398,12 @@ class Clock:
             try:
                 dev = self._run(BleakScanner.find_device_by_address(self.address, timeout=5.0))
                 if dev:
-                    self.connect(pair=False)
+                    self.connect(pair=pair)
                     self.drain()
                     return
             except Exception as e:  # noqa: BLE001 - keep trying until the deadline
                 last = e
+                self.disconnect()  # a half-made connection would keep the clock's only one
             time.sleep(1)
         raise TimeoutError(f"the clock did not come back in {wait_s} s: {last}")
 
@@ -549,6 +602,11 @@ class SerialLog:
                     return m
             time.sleep(0.1)
         raise TimeoutError(f"'{pattern}' not in the log in {timeout} s")
+
+    def verbose(self, mark=0):
+        """Whether the firmware logs info messages (a debug build): any since `mark`, or else any at all"""
+        rx = re.compile(r"^[IDV] \(\d+\) ")
+        return any(rx.search(line) for line in self.since(mark)) or any(rx.search(line) for line in self.since(0))
 
     def crashes(self, mark=0):
         return [line for line in self.since(mark) if self.CRASH.search(line)]

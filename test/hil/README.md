@@ -39,11 +39,13 @@ Options:
 | `--internet-update` | With `--wifi`: install the latest release from the internet if it is newer than the clock's firmware |
 | `--firmware FILE` | Also run the BLE upload tests and **install** `FILE` at the end: abort, not an image, a short image, disconnect, rollback (`--port`), then the real update. Use the application image: `build/release_4mb/tetris-clock.bin` or a release `*_fw.bin` |
 | `--manual` | Also run the touch pad tests: a person touches the pad when asked. Run with `-s` |
+| `--pairing` | Also run the pairing window tests (`test_security.py`): the PC forgets its pairing and pairs again, inside and outside the window; needs `--port` (a reset opens the window). Takes ~5 min: the window must close once |
+| `--slow` | Also run the idle timeout tests: an unused connection is dropped, a subscribed one kept (5 min each) |
 
 Everything:
 
 ```bash
-pytest -s --port /dev/ttyUSB0 --reboot --wifi --manual --firmware ../../build/release_4mb/tetris-clock.bin
+pytest -s --port /dev/ttyUSB0 --reboot --wifi --manual --pairing --slow --firmware ../../build/release_4mb/tetris-clock.bin
 ```
 
 One test: `pytest test_time.py::test_new_year --port /dev/ttyUSB0 -v`.
@@ -56,9 +58,17 @@ why a test fails.
 
 ## Pairing
 
-Writing the WiFi settings needs an encrypted link, so the tests pair with the clock ("Just Works", no
-PIN) when they connect. The clock keeps a few bonds (NimBLE: 3 by default), the PC takes one of
-them. To pair again from scratch: `bluetoothctl remove <address>`.
+Firmware v2.1.0+ lets in only bonded phones: everything but the firmware version needs an encrypted
+link, and a new phone (the PC is one) pairs only while the clock's pairing window is open, 2 minutes
+after power on or after a 5 s touch of the pad. The tests pair ("Just Works", no PIN) when they connect.
+If the clock does not let the PC in, with `--port` they reset the clock (which opens the window) and
+pair again; without it they stop and ask to open the window (hold the pad for 5 s) and rerun.
+
+The clock keeps 5 bonds, the PC takes one of them. To pair again from scratch:
+`bluetoothctl remove <address>`. The `--pairing` tests do that themselves and leave the PC paired.
+
+The log checks of the security tests (pairing rejected, idle connection dropped...) need the debug
+build: release builds log errors only, and the tests then check the behaviour alone.
 
 ## What the tests change
 
@@ -91,6 +101,7 @@ brightness, alarms, aging offset, time zone. Exceptions:
 - `test_wifi.py` - network scan, time sync, update check and install from the internet (`--wifi`);
 - `test_reboot.py` - persistence over a reset (`--reboot`);
 - `test_ota.py` - firmware upload over BLE and rollback (`--firmware`);
-- `test_touch.py` - the touch pad (`--manual`).
+- `test_touch.py` - the touch pad (`--manual`);
+- `test_security.py` - who the clock lets in: the pairing window, unpaired and idle connections (`--pairing`, `--slow`, `--manual`).
 
 Host tests of hardware independent code are in [../host](../host): `make -C test/host`.

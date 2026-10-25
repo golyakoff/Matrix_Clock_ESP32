@@ -324,6 +324,10 @@ void ble_set_disconnect_callback(ble_on_disconnect_t callback);
 // within BLE_AUTH_TIMEOUT_S of connecting is dropped.
 #define BLE_PAIRING_WINDOW_S                120
 #define BLE_AUTH_TIMEOUT_S                  30
+// A connection with no reads, writes or subscriptions for this long is dropped, so the clock
+// advertises again: Android keeps the link to a just bonded clock open with no app using it, and the
+// clock (one connection at most) cannot advertise while connected
+#define BLE_IDLE_TIMEOUT_S                  300
 
 /**
  * @brief Opens the pairing window for BLE_PAIRING_WINDOW_S (ble_init() opens it too).

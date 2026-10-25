@@ -1,3 +1,11 @@
+Release 2.1.1
+
+- [x] A connection nobody uses is dropped after 5 minutes (no reads, writes or subscriptions), so the clock advertises again and other phones see it: Android can keep the link to a paired clock open after the app is gone. A phone waiting for notifications is kept
+- [x] Optional double-buffered display (`CONFIG_MC_DISPLAY_DOUBLE_BUFFER`, off: no visible difference here)
+- [x] Tests: `test/hil/test_security.py` covers the pairing window, unpaired and idle connections (`--pairing`, `--slow`, `--manual`)
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v2.1.0...v2.1.1
+
 Release 2.1.0
 
 - [x] **Only your phones control the clock**: everything but the firmware version needs an encrypted link, i.e. a phone paired with the clock ("Just Works", no PIN; up to 5 phones). A new phone can pair only within 2 minutes after power on, or after a 5-second touch of the touch pad, which opens the pairing window for 2 minutes and says so on the display ("Bluetooth pairing / 2 min"; a new phone shows "New phone paired"). Outside the window the clock drops the new keys and the phone, also for a phone that forgot its pairing; a full bond store does not make room for a stranger. A phone that does not pair within 30 seconds is disconnected
