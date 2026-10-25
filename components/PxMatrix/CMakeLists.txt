@@ -4,3 +4,8 @@
 
 idf_component_register(INCLUDE_DIRS "."
                        REQUIRES arduino-esp32 Adafruit_GFX)
+
+# Every user of the header must agree on the class layout: the switch goes to them all
+if(CONFIG_MC_DISPLAY_DOUBLE_BUFFER)
+    target_compile_definitions(${COMPONENT_LIB} INTERFACE double_buffer)
+endif()

@@ -35,6 +35,18 @@ static void timer_set_running(hw_timer_t *t, bool run)
 PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D);
 TetrisMatrixDraw tetris(display);
 
+// Shows what was drawn since the last call. Double-buffered, drawing goes to the hidden buffer and
+// this swaps it in whole; the new hidden buffer then gets a copy of the frame on screen, so the
+// drawing code can keep updating parts of it (the colon, the OTA percentage) as before. Without
+// double buffering the drawing lands on screen as it happens and this does nothing.
+static void present()
+{
+#ifdef double_buffer
+    display.showBuffer();
+    display.copyBuffer();
+#endif
+}
+
 static uint8_t tim_100hz;
 // Set when the display is turned on/off or the brightness settings change, so the next 100 Hz tick
 // applies it right away instead of waiting for the once-a-second brightness check (the touch pad
@@ -142,6 +154,7 @@ void matrix_init(struct tm *init_dt)
 
     // "Powered By"
     draw_intro(6, 12);
+    present();
     delay(2000);
 
     // Start the Animation Timer
@@ -165,6 +178,7 @@ void matrix_init(struct tm *init_dt)
     _display_intro = false;
     tetris.scale = 2;
     display.clearDisplay();
+    present();
 }
 
 void matrix_pause_timers()
@@ -243,6 +257,7 @@ void matrix_ota_freeze_display()
     // blank frame onto the panel so it latches all-black, then stop the timer. The panel comes back
     // only to show the failure screen (matrix_show_ota_failed()); a success reboots straight away.
     display.clearDisplay();
+    present();
     delay(20); // a few DISPLAY_REFRESH_OTA_US cycles to push the blank frame out before freezing
     if (timer)
         timer_set_running(timer, false);
@@ -270,6 +285,7 @@ void matrix_set_ota_progress(float percent)
     display.setCursor(17, 22);
     display.setTextColor(display.color565(220, 0, 15));
     display.print(buf);
+    present();
 }
 
 void matrix_show_ota_failed()
@@ -294,6 +310,7 @@ void matrix_show_ota_failed()
     display.print("Reboot in");
     display.setCursor(15, 22);
     display.print("10 sec");
+    present();
 }
 
 void IRAM_ATTR matrix_1hz_isr_loop()
@@ -495,6 +512,7 @@ void animation_handler()
         {
             _finished_animating = tetris.drawNumbers(2, 26, _show_colon);
         }
+        present();
     }
 }
 
@@ -607,6 +625,7 @@ void enter_notice_mode(matrix_notice_t notice)
             print_centered(18, "paired");
             break;
     }
+    present();
 }
 
 void exit_notice_mode()
@@ -619,6 +638,7 @@ void exit_notice_mode()
         timer_set_running(animationTimer, true);
 
     display.clearDisplay();
+    present();
     _force_update = true;
     _finished_animating = false;
 }
@@ -634,6 +654,7 @@ void exit_splash_mode()
         timer_set_running(animationTimer, true);
 
     display.clearDisplay();
+    present();
     _force_update = true;
     _finished_animating = false;
 }
@@ -669,6 +690,7 @@ void draw_splash_frame()
         for (uint8_t x = 0; x < a->width; x++)
             display.drawPixel(x, y, row[x]);
     }
+    present();
 }
 
 void handle_colon_after_animation()
@@ -682,6 +704,7 @@ void handle_colon_after_animation()
     // (this could be better!)
     int y = 26 - (TETRIS_Y_DROP_DEFAULT * tetris.scale);
     tetris.drawColon(x, y, colour);
+    present();
 }
 
 void check_brightness_tick()

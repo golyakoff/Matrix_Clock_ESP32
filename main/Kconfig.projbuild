@@ -30,4 +30,13 @@ menu "Matrix Clock"
             the latest beta (updater.h): the "beta" pre-release, which CI updates
             on every vX.Y.Z-betaN tag.
 
+    config MC_DISPLAY_DOUBLE_BUFFER
+        bool "Double-buffered display"
+        default n
+        help
+            Draw each frame into a second buffer and show it whole (PxMatrix
+            double_buffer), instead of clearing and redrawing the buffer the
+            refresh ISR is scanning, which can show half-drawn frames of the
+            falling blocks. Costs one more frame buffer of RAM.
+
 endmenu
