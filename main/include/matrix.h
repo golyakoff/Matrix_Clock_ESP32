@@ -248,4 +248,22 @@ void matrix_request_animation_splash_preview();
  */
 uint8_t matrix_get_animation_count();
 
+/**
+ * @brief Short messages shown over the clock for MATRIX_NOTICE_MS (matrix_show_notice()).
+ */
+typedef enum
+{
+    matrix_notice_pairing_open = 0,   // the BLE pairing window was opened by a long touch
+    matrix_notice_phone_paired = 1,   // a new phone has paired
+} matrix_notice_t;
+
+#define MATRIX_NOTICE_MS (3000U)
+
+/**
+ * @brief Shows a notice for MATRIX_NOTICE_MS, then the clock again (an Animation Splash run is cut
+ *        short). Only stages the request (callable from any task); it is drawn from
+ *        matrix_100hz_loop(). Ignored during OTA.
+ */
+void matrix_show_notice(matrix_notice_t notice);
+
 #endif // __MATRIX_H__

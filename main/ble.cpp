@@ -2,6 +2,8 @@
 #include <NimBLEDevice.h>
 #include <string.h>
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <vector>
 
 #include "time_helper.h"
 #include "ble.h"
@@ -61,6 +63,28 @@ static NimBLECharacteristic* _mcuc_char = nullptr;
 // Variables
 static bool _device_connected = false;
 
+// Every characteristic but the version needs an encrypted link from a bonded phone ("Just Works"
+// pairing with bonding, LE Secure Connections). A new phone can pair only while the pairing window
+// is open (BLE_PAIRING_WINDOW_S after power on or ble_open_pairing_window()); a phone that does not
+// get in within BLE_AUTH_TIMEOUT_S is dropped. Ported from FireLamp_ESP32 (main/ble_server.c).
+#define BLE_READ_ENC   (NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC)
+#define BLE_WRITE_ENC  (NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC)
+
+static bool _authorized = false;                  // the connected phone is bonded and let in
+static volatile uint32_t _pairing_until_ms = 0;   // the pairing window is open until (millis())
+static volatile bool _pairing_window_used = false;
+// The phones bonded before this connection, with the key each was bonded with: a phone that dropped
+// its keys and pairs anew keeps its address (NimBLE's repeat pairing replaces the old bond in place),
+// only the key tells the new pairing from the old bond
+struct bonded_phone_t
+{
+    NimBLEAddress address;
+    uint8_t ltk[16];
+};
+static std::vector<bonded_phone_t> _bonded;
+static esp_timer_handle_t _auth_timer = nullptr;
+static ble_on_new_phone_t _on_new_phone = nullptr;
+
 // The advertised (and GAP) name: BLE_SERVER_NAME, or the one from the network callbacks
 static char _device_name[NET_NAME_MAX_LEN + 1] = BLE_SERVER_NAME;
 
@@ -111,6 +135,75 @@ static ble_set_ota_control_ble_write_t _set_ota_control_ble_write = nullptr;
 static ble_set_ota_data_ble_write_t _set_ota_data_ble_write = nullptr;
 static ble_on_disconnect_t _on_disconnect = nullptr;
 
+static bool pairing_open()
+{
+    return _pairing_window_used && (int32_t)(_pairing_until_ms - millis()) > 0;
+}
+
+// Snapshot of the bonded phones: at the end of a pairing the new phone is already in the store, so
+// "known before" has to be remembered
+// Our key for a bonded phone (false if there is none)
+static bool read_ltk(const NimBLEAddress& address, uint8_t ltk[16])
+{
+    struct ble_store_key_sec key = {};
+    struct ble_store_value_sec value = {};
+    key.peer_addr = *address.getBase();
+    if (ble_store_read_our_sec(&key, &value) != 0 || !value.ltk_present)
+        return false;
+    memcpy(ltk, value.ltk, 16);
+    return true;
+}
+
+static void load_bonded()
+{
+    _bonded.clear();
+    int n = NimBLEDevice::getNumBonds();
+    for (int i = 0; i < n; i++)
+    {
+        bonded_phone_t phone = { NimBLEDevice::getBondedAddress(i), {} };
+        if (read_ltk(phone.address, phone.ltk))
+            _bonded.push_back(phone);
+    }
+}
+
+// Whether the link is encrypted with a bond made before this connection (not a pairing just now)
+static bool was_bonded(const NimBLEAddress& address)
+{
+    uint8_t ltk[16];
+    if (!read_ltk(address, ltk))
+        return false;
+    for (const bonded_phone_t& phone : _bonded)
+        if (phone.address == address)
+            return memcmp(phone.ltk, ltk, 16) == 0;
+    return false;
+}
+
+static void auth_timer_cb(void*)
+{
+    if (_device_connected && _have_conn_handle && !_authorized && _pServer)
+    {
+        ESP_LOGW(TAG, "Phone did not pair in %d s, disconnecting", BLE_AUTH_TIMEOUT_S);
+        _pServer->disconnect(_conn_handle);
+    }
+}
+
+// The bond store is full and new keys are coming: making room forgets the oldest phone, allowed only
+// inside the pairing window, so that a stranger cannot evict the bonded phones
+class MyDeviceCallbacks: public NimBLEDeviceCallbacks
+{
+    int onStoreStatus(struct ble_store_status_event* event, void* arg) override
+    {
+        if ((event->event_code == BLE_STORE_EVENT_OVERFLOW || event->event_code == BLE_STORE_EVENT_FULL)
+                && !pairing_open())
+        {
+            ESP_LOGW(TAG, "Bond store is full and the pairing window is closed: keys rejected");
+            return BLE_HS_ESTORE_CAP;
+        }
+        return ble_store_util_status_rr(event, arg);
+    }
+};
+MyDeviceCallbacks _myDeviceCallbacks;
+
 // BLE Server Callbacks class
 class MyServerCallbacks: public NimBLEServerCallbacks
 {
@@ -120,7 +213,10 @@ class MyServerCallbacks: public NimBLEServerCallbacks
         // Kept so ble_request_ota_conn_params() can target this connection when an OTA update starts.
         _conn_handle = connInfo.getConnHandle();
         _have_conn_handle = true;
+        _authorized = false;
         ESP_LOGI(TAG, "BLE device connected");
+        if (_auth_timer)
+            esp_timer_start_once(_auth_timer, BLE_AUTH_TIMEOUT_S * 1000000ULL);
 
         // Translate the firmware version
         ble_update_firmware_version();
@@ -130,11 +226,49 @@ class MyServerCallbacks: public NimBLEServerCallbacks
     {
         _device_connected = false;
         _have_conn_handle = false;
+        _authorized = false;
+        if (_auth_timer)
+            esp_timer_stop(_auth_timer);
         ESP_LOGI(TAG, "BLE device disconnected, reason %d", reason);
         if (_on_disconnect)
             _on_disconnect();
 
         start_advertising();
+    }
+
+    // Encryption is established (or failed): with an existing bond or after a new pairing
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override
+    {
+        if (!connInfo.isEncrypted())
+        {
+            ESP_LOGW(TAG, "Encryption failed");
+            return;
+        }
+        NimBLEAddress address = connInfo.getIdAddress();
+        if (was_bonded(address))
+        {
+            ESP_LOGI(TAG, "Bonded phone connected");
+        }
+        else if (pairing_open())
+        {
+            ESP_LOGI(TAG, "New phone paired");
+            load_bonded();
+            if (_on_new_phone)
+                _on_new_phone();
+        }
+        else
+        {
+            // A new pairing outside the window: forget the keys and drop the phone
+            ESP_LOGW(TAG, "Pairing rejected, the pairing window is closed");
+            NimBLEDevice::deleteBond(address);
+            load_bonded();
+            if (_pServer)
+                _pServer->disconnect(connInfo.getConnHandle());
+            return;
+        }
+        _authorized = true;
+        if (_auth_timer)
+            esp_timer_stop(_auth_timer);
     }
 };
 MyServerCallbacks _myServerCallbacks;
@@ -142,6 +276,9 @@ MyServerCallbacks _myServerCallbacks;
 // BLE Characteristic Callbacks class
 class MyCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        // Between a rejected pairing and the disconnect the link is encrypted, but not let in
+        if (!_authorized)
+            return;
         // The value stays valid until the callback returns: the stack doesn't touch it meanwhile.
         NimBLEAttValue value = pCharacteristic->getValue();
         const uint8_t* write_value = value.data();
@@ -680,6 +817,8 @@ static void set_update_info_value()
 
 class NetworkCharacteristicCallbacks: public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+        if (!_authorized)
+            return;
         NimBLEAttValue value = pCharacteristic->getValue();
         const uint8_t* data = value.data();
         const size_t len = value.size();
@@ -778,6 +917,18 @@ void ble_set_disconnect_callback(ble_on_disconnect_t callback)
     _on_disconnect = callback;
 }
 
+void ble_set_new_phone_callback(ble_on_new_phone_t callback)
+{
+    _on_new_phone = callback;
+}
+
+void ble_open_pairing_window()
+{
+    _pairing_until_ms = millis() + BLE_PAIRING_WINDOW_S * 1000UL;
+    _pairing_window_used = true;
+    ESP_LOGI(TAG, "Pairing window is open for %d s", BLE_PAIRING_WINDOW_S);
+}
+
 void ble_set_network_callbacks(const ble_network_callbacks_t *callbacks)
 {
     _network_cb = callbacks;
@@ -786,7 +937,7 @@ void ble_set_network_callbacks(const ble_network_callbacks_t *callbacks)
 // Creates the network characteristics (ble_init())
 static void ble_add_network_characteristics(NimBLEService *bleService)
 {
-    const uint32_t RW = NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE;
+    const uint32_t R = BLE_READ_ENC, W = BLE_WRITE_ENC, RW = R | W;
 
     ESP_LOGI(TAG, "Add MatrixClock network characteristics...");
     _mctz_char = bleService->createCharacteristic(MC_TIME_ZONE_CHAR_UUID, RW);
@@ -794,22 +945,22 @@ static void ble_add_network_characteristics(NimBLEService *bleService)
 
     // The password goes over the air: writing needs an encrypted link (the phone pairs on the first
     // write, "Just Works")
-    _mcws_char = bleService->createCharacteristic(MC_WIFI_SETTINGS_CHAR_UUID, RW | NIMBLE_PROPERTY::WRITE_ENC);
+    _mcws_char = bleService->createCharacteristic(MC_WIFI_SETTINGS_CHAR_UUID, RW);
     _mcws_char->setCallbacks(&_networkCharacteristicCallbacks);
 
-    _mcwst_char = bleService->createCharacteristic(MC_WIFI_STATUS_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcwst_char = bleService->createCharacteristic(MC_WIFI_STATUS_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
     _mcwst_char->setCallbacks(&_networkCharacteristicCallbacks);
 
     _mcwn_char = bleService->createCharacteristic(MC_WIFI_NETWORKS_CHAR_UUID, RW | NIMBLE_PROPERTY::NOTIFY, MC_WIFI_NETWORKS_PAGE_MAX);
     _mcwn_char->setCallbacks(&_networkCharacteristicCallbacks);
 
-    _mccmd_char = bleService->createCharacteristic(MC_COMMAND_CHAR_UUID, NIMBLE_PROPERTY::WRITE);
+    _mccmd_char = bleService->createCharacteristic(MC_COMMAND_CHAR_UUID, W);
     _mccmd_char->setCallbacks(&_networkCharacteristicCallbacks);
 
-    _mcui_char = bleService->createCharacteristic(MC_UPDATE_INFO_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcui_char = bleService->createCharacteristic(MC_UPDATE_INFO_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
     _mcui_char->setCallbacks(&_networkCharacteristicCallbacks);
 
-    _mcos_char = bleService->createCharacteristic(MC_OTA_STATUS_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcos_char = bleService->createCharacteristic(MC_OTA_STATUS_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
     _mcos_char->setValue(_ota_status_value, sizeof(_ota_status_value));
 
     _mcdn_char = bleService->createCharacteristic(MC_DEVICE_NAME_CHAR_UUID, RW, NET_NAME_MAX_LEN);
@@ -925,10 +1076,15 @@ void ble_init(
     NimBLEDevice::setMTU(BLE_DEVICE_MTU);
     ESP_LOGI(TAG, "OK (actual MTU value now: %d)", NimBLEDevice::getMTU());
 
-    // Bonding with "Just Works" pairing and LE Secure Connections, for the encrypted WiFi settings
-    // write; the other characteristics stay open
-    if (_network_cb)
-        NimBLEDevice::setSecurityAuth(true, false, true);
+    // Bonding with "Just Works" pairing and LE Secure Connections: every characteristic but the
+    // version needs it (see BLE_READ_ENC). New phones can pair right after power on.
+    NimBLEDevice::setSecurityAuth(true, false, true);
+    NimBLEDevice::setDeviceCallbacks(&_myDeviceCallbacks);
+    load_bonded();
+    ESP_LOGI(TAG, "%d bonded phone(s)", (int)_bonded.size());
+    const esp_timer_create_args_t auth_timer_args = { .callback = auth_timer_cb, .name = "ble_auth" };
+    esp_timer_create(&auth_timer_args, &_auth_timer);
+    ble_open_pairing_window();
     
     // Create the BLE Server
     ESP_LOGI(TAG, "Create BLE server...");
@@ -943,14 +1099,14 @@ void ble_init(
     NimBLEService *bleService = pServer->createService(MC_SERVICE_UUID);
     ESP_LOGI(TAG, "OK (primary service '%s' created)", bleService->getUUID().toString().c_str());
 
-    const uint32_t RW = NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE;
+    const uint32_t R = BLE_READ_ENC, W = BLE_WRITE_ENC, RW = R | W;
 
     ESP_LOGI(TAG, "Add MatrixClock Time characteristic...");
     _mct_char = bleService->createCharacteristic(MC_TIME_CHAR_UUID, RW | NIMBLE_PROPERTY::NOTIFY);
     _mct_char->setCallbacks(&_myCharacteristicCallbacks);
     
     ESP_LOGI(TAG, "Add MatrixClock Time String characteristic...");
-    _mcts_char = bleService->createCharacteristic(MC_TIME_STR_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    _mcts_char = bleService->createCharacteristic(MC_TIME_STR_CHAR_UUID, R | NIMBLE_PROPERTY::NOTIFY);
 
     ESP_LOGI(TAG, "Add MatrixClock Turn Off Alarm characteristic...");
     _mctofa_char = bleService->createCharacteristic(MC_TURN_OFF_ALARM_CHAR_UUID, RW);
@@ -985,7 +1141,7 @@ void ble_init(
     _mchbt_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock RTC Temperature Value characteristic...");
-    _mctt_char = bleService->createCharacteristic(MC_TEMPERATURE_CHAR_UUID, NIMBLE_PROPERTY::READ);
+    _mctt_char = bleService->createCharacteristic(MC_TEMPERATURE_CHAR_UUID, R);
     _mctt_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock RTC Aging Offset Value characteristic...");
@@ -993,7 +1149,7 @@ void ble_init(
     _mctao_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock Flash Size characteristic...");
-    _mcfs_char = bleService->createCharacteristic(MC_FLASH_SIZE_CHAR_UUID, NIMBLE_PROPERTY::READ);
+    _mcfs_char = bleService->createCharacteristic(MC_FLASH_SIZE_CHAR_UUID, R);
     // Physical flash chip size in whole MB, read from the chip's JEDEC id at boot (constant for the
     // power-on session), so the value is set once here rather than via an onRead callback.
     uint8_t flash_size_mb = (uint8_t)(ESP.getFlashChipSize() >> 20);
@@ -1001,7 +1157,7 @@ void ble_init(
     ESP_LOGI(TAG, "OK (flash %u MB)", flash_size_mb);
 
     ESP_LOGI(TAG, "Add MatrixClock Animation Count characteristic...");
-    _mcac_char = bleService->createCharacteristic(MC_ANIMATION_COUNT_CHAR_UUID, NIMBLE_PROPERTY::READ);
+    _mcac_char = bleService->createCharacteristic(MC_ANIMATION_COUNT_CHAR_UUID, R);
     // Value comes from the matrix animation registry, which ble.cpp can't include; main.cpp pushes
     // it in via ble_set_animation_count() at boot. Seed with 0 until then.
     uint8_t animation_count_seed = 0;
@@ -1009,15 +1165,16 @@ void ble_init(
 
     ESP_LOGI(TAG, "Add MatrixClock Firmware Version characteristic...");
     _mcfv_char = bleService->createCharacteristic(MC_VERSION_CHAR_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    // Set right away, not only on connect: a read may come before onConnect() has run
+    // Set right away, not only on connect: a read may come before onConnect() has run. The one
+    // characteristic open without pairing: the app reads it to know whether to pair at all.
     _mcfv_char->setValue(_get_fw_ver_ble_read());
 
     ESP_LOGI(TAG, "Add MatrixClock OTA Control characteristic...");
-    _mcotac_char = bleService->createCharacteristic(MC_OTA_CONTROL_CHAR_UUID, NIMBLE_PROPERTY::WRITE);
+    _mcotac_char = bleService->createCharacteristic(MC_OTA_CONTROL_CHAR_UUID, W);
     _mcotac_char->setCallbacks(&_myCharacteristicCallbacks);
 
     ESP_LOGI(TAG, "Add MatrixClock OTA Data characteristic...");
-    _mcotad_char = bleService->createCharacteristic(MC_OTA_DATA_CHAR_UUID, NIMBLE_PROPERTY::WRITE, BLE_OTA_DATA_BUFFER);
+    _mcotad_char = bleService->createCharacteristic(MC_OTA_DATA_CHAR_UUID, W, BLE_OTA_DATA_BUFFER);
     _mcotad_char->setCallbacks(&_myCharacteristicCallbacks);
 
     if (_network_cb)

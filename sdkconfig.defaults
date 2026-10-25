@@ -30,9 +30,13 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=515
 CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192
 CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
-# Phones pair for the encrypted WiFi settings write (ble.cpp): keep the bonds across reboots, or the
-# phone's bond would no longer match after one
+# Phones pair with the clock (ble.cpp, the pairing window): keep the bonds across reboots, or the
+# phone's bond would no longer match after one. Up to 5 phones; each keeps its subscriptions to the
+# notifying characteristics (8 of them), so the CCCD store has room for all 5 phones - a full store
+# would forget the oldest phone to make room.
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
+CONFIG_BT_NIMBLE_MAX_BONDS=5
+CONFIG_BT_NIMBLE_MAX_CCCDS=48
 
 # Compile only the Arduino libraries the clock uses (BLE is esp-nimble-cpp, not Arduino's BLE)
 CONFIG_ARDUINO_SELECTIVE_COMPILATION=y

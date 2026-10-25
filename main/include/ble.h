@@ -91,8 +91,8 @@
 
 // WiFi settings. Write: u8 mode (0 = off, 1 = periodic: every <period> hours connect, sync time, check
 // for an update, disconnect), u8 period 1..24 hours, str8 SSID (up to 32 bytes), str8 password (up to
-// 64 bytes; length 0xFF = keep the stored one). Writing needs an encrypted link: the phone pairs ("Just
-// Works", no PIN) on the first write. Read: the same, but the password is never returned: its length
+// 64 bytes; length 0xFF = keep the stored one). Like every characteristic but the version, it needs a
+// bonded phone (see ble_open_pairing_window()). Read: the same, but the password is never returned: its length
 // byte is 0 (no password stored) or 0xFF (a password is stored), followed by no bytes.
 #define MC_WIFI_SETTINGS_CHAR_UUID          "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4F8" // O Read, Write (encrypted)
 
@@ -315,6 +315,30 @@ typedef void (*ble_on_disconnect_t)();
  * @brief Sets the function called when the phone disconnects (nullptr: none).
  */
 void ble_set_disconnect_callback(ble_on_disconnect_t callback);
+
+// Pairing. Every characteristic but MC_VERSION_CHAR_UUID needs an encrypted link from a bonded phone
+// ("Just Works" pairing, no PIN; up to CONFIG_BT_NIMBLE_MAX_BONDS phones). A new phone can pair only
+// while the pairing window is open: BLE_PAIRING_WINDOW_S after power on and after
+// ble_open_pairing_window() (a long touch). Outside it a new pairing is undone and the phone dropped,
+// and a full bond store does not make room by forgetting the oldest phone. A phone that is not let in
+// within BLE_AUTH_TIMEOUT_S of connecting is dropped.
+#define BLE_PAIRING_WINDOW_S                120
+#define BLE_AUTH_TIMEOUT_S                  30
+
+/**
+ * @brief Opens the pairing window for BLE_PAIRING_WINDOW_S (ble_init() opens it too).
+ */
+void ble_open_pairing_window();
+
+/**
+ * @brief Type of a function called when a new phone has paired. Called from the BLE stack's task: must be fast.
+ */
+typedef void (*ble_on_new_phone_t)();
+
+/**
+ * @brief Sets the function called when a new phone has paired (nullptr: none).
+ */
+void ble_set_new_phone_callback(ble_on_new_phone_t callback);
 
 /**
  * @brief Enables the network characteristics. Call before ble_init(); without it they are not created.

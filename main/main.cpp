@@ -41,6 +41,8 @@
 // sample, every 10ms), so a few noisy samples in a row still read as a short touch. A real touch
 // lasts longer: the display is toggled only once the pad has been held this long.
 #define TOUCH_HOLD_MS (60U)
+// A touch held this long opens the BLE pairing window (ble_open_pairing_window())
+#define TOUCH_PAIRING_MS (5000U)
 
 #define OTA_FAILED_REBOOT_DELAY_MS (10000UL)
 
@@ -643,6 +645,13 @@ void ble_disconnected()
         ota_abort();
 }
 
+// A new phone has paired: say so on the clock (matrix_show_notice() only stages it)
+void ble_new_phone()
+{
+    if (!ota_is_in_progress())
+        matrix_show_notice(matrix_notice_phone_paired);
+}
+
 void ota_progress_callback(size_t received, size_t total) {
     // Match what the phone app shows: it downloads the .bin to the phone first, then sends it
     // over BLE (this "install" phase, which is all the device sees) and finally reboots/verifies,
@@ -911,6 +920,7 @@ void main_ble_init()
 {
     ble_set_network_callbacks(&_network_callbacks);
     ble_set_disconnect_callback(ble_disconnected);
+    ble_set_new_phone_callback(ble_new_phone);
     ble_init(
         &set_rtc_time_on_ble_write,
         &set_matrix_show_on_ble_write,
@@ -960,32 +970,47 @@ IRAM_ATTR void touch_callback_isr()
     }
 }
 
-// Toggles the display on a touch held for TOUCH_HOLD_MS, once per touch. A shorter one is taken for
-// noise and only logged.
+// A touch toggles the display when it is released after TOUCH_HOLD_MS or more; a shorter one is taken
+// for noise and only logged. A touch held on for TOUCH_PAIRING_MS opens the BLE pairing window for
+// new phones instead, and leaves the display on (turning it on if it was off). Acting on the release
+// rather than at TOUCH_HOLD_MS is what lets a long touch not blank the clock first.
 void main_touch_tick(unsigned long now)
 {
     static uint32_t seen_presses = 0;
-    static bool waiting = false;
+    static bool waiting = false;   // a touch not acted on yet
 
     if (_touch_presses != seen_presses) {
         seen_presses = _touch_presses;
         waiting = true;
     }
+
     if (!waiting)
         return;
 
+    uint32_t pressed_at = _touch_pressed_at;
     if (_touch_pressed) {
-        if (now - _touch_pressed_at < TOUCH_HOLD_MS)
+        if (now - pressed_at < TOUCH_PAIRING_MS)
             return;
         waiting = false;
-        bool new_matrix_show = !matrix_get_show();
-        matrix_set_show(new_matrix_show);
-        ble_update_matrix_show(new_matrix_show);
-        ESP_LOGI(TAG, "Touch: display %s (pad level %u)", new_matrix_show ? "on" : "off",
-            (unsigned)touchSensor.Read());
-    } else {
-        waiting = false;
-        ESP_LOGI(TAG, "Touch ignored: released after %u ms",
-            (unsigned)(_touch_released_at - _touch_pressed_at));
+        ble_open_pairing_window();
+        if (!matrix_get_show()) {
+            matrix_set_show(true);
+            ble_update_matrix_show(true);
+        }
+        matrix_show_notice(matrix_notice_pairing_open);
+        ESP_LOGI(TAG, "Touch: pairing window opened");
+        return;
     }
+
+    waiting = false;
+    uint32_t held = _touch_released_at - pressed_at;
+    if (held < TOUCH_HOLD_MS) {
+        ESP_LOGI(TAG, "Touch ignored: released after %u ms", (unsigned)held);
+        return;
+    }
+    bool new_matrix_show = !matrix_get_show();
+    matrix_set_show(new_matrix_show);
+    ble_update_matrix_show(new_matrix_show);
+    ESP_LOGI(TAG, "Touch: display %s after %u ms (pad level %u)", new_matrix_show ? "on" : "off",
+        (unsigned)held, (unsigned)touchSensor.Read());
 }

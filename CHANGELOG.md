@@ -1,3 +1,10 @@
+Release 2.1.0
+
+- [x] **Only your phones control the clock**: everything but the firmware version needs an encrypted link, i.e. a phone paired with the clock ("Just Works", no PIN; up to 5 phones). A new phone can pair only within 2 minutes after power on, or after a 5-second touch of the touch pad, which opens the pairing window for 2 minutes and says so on the display ("Bluetooth pairing / 2 min"; a new phone shows "New phone paired"). Outside the window the clock drops the new keys and the phone, also for a phone that forgot its pairing; a full bond store does not make room for a stranger. A phone that does not pair within 30 seconds is disconnected
+- [x] A short touch toggles the display when it is released, so a long touch for pairing no longer blanks the clock first
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v2.0.1...v2.1.0
+
 Release 2.0.1
 
 - [x] **WiFi** (optional, off by default): set up in the app, which picks the network from the ones the clock hears. Every 1..24 hours (1 by default) the clock connects as a client, syncs its time from the internet (SNTP) into the RTC at the second boundary, checks GitHub for a newer firmware and disconnects. The local time comes from the phone's time zone, which the app keeps on the clock as a POSIX TZ string, so daylight saving time is applied by the clock itself. The time comes from three NTP servers

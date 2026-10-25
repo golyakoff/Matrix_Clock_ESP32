@@ -74,6 +74,11 @@ static unsigned long _splash_frame_due_ms = 0;   // millis() at which to advance
 static unsigned long _splash_end_ms = 0;         // millis() at which the current run ends
 static volatile bool _splash_preview_requested = false; // set from the BLE task, consumed in the loop
 
+// Notices (matrix_show_notice()): a few lines of text over the clock, modeled on the splash mode
+static volatile int8_t _notice_requested = -1;   // matrix_notice_t; set from any task, consumed in the loop
+static bool _notice_mode = false;                // true while a notice is shown
+static unsigned long _notice_end_ms = 0;         // millis() at which the notice ends
+
 // Playback duration in seconds, indexed by animation_splash_duration_t (0..3).
 static const uint16_t _animation_splash_duration_secs[] = { 10, 20, 40, 60 };
 
@@ -106,6 +111,8 @@ void check_brightness_tick();
 uint8_t brightness_nibble_to_byte(uint8_t brightness_nibble);
 void enter_splash_mode(const animation_t* anim);
 void exit_splash_mode();
+void enter_notice_mode(matrix_notice_t notice);
+void exit_notice_mode();
 void step_splash();
 void draw_splash_frame();
 
@@ -177,7 +184,7 @@ void matrix_resume_timers()
     // set_ota_data_ble_write() (and the NVS brightness flush) call matrix_pause_timers()/
     // matrix_resume_timers() around flash writes, and re-enabling the timer here would restart the
     // Tetris clock animation on top of the OTA text / splash frames.
-    if (animationTimer && !_ota_mode && !_splash_mode)
+    if (animationTimer && !_ota_mode && !_splash_mode && !_notice_mode)
         timer_set_running(animationTimer, true);
 
     // Keep the display refresh timer off too once the panel has been deliberately blanked for the
@@ -305,6 +312,28 @@ void matrix_100hz_loop()
     // during OTA (brightness itself just stays frozen at whatever it was when OTA started).
     if (_ota_mode)
         return;
+
+    // A notice owns the panel for its duration; it cuts a running Animation Splash short
+    int8_t notice = _notice_requested;
+    if (notice >= 0)
+    {
+        _notice_requested = -1;
+        if (_splash_mode)
+            exit_splash_mode();
+        enter_notice_mode((matrix_notice_t)notice);
+    }
+    if (_notice_mode)
+    {
+        // The display may have just been turned on for the notice (a long touch on a dark clock)
+        if (_brightness_changed)
+        {
+            _brightness_changed = false;
+            check_brightness_tick();
+        }
+        if ((long)(millis() - _notice_end_ms) >= 0)
+            exit_notice_mode();
+        return;
+    }
 
     // Start a preview run requested from the app (staged as a flag by the BLE task, so the actual
     // drawing happens here on the main task rather than concurrently from the BLE stack).
@@ -536,6 +565,62 @@ void enter_splash_mode(const animation_t* anim)
     display.clearDisplay();
     draw_splash_frame();
     _splash_frame_due_ms = millis() + anim->frame_ms[0];
+}
+
+void matrix_show_notice(matrix_notice_t notice)
+{
+    _notice_requested = (int8_t)notice;
+}
+
+// Prints a line of the 6x8 font centered on the 64 px wide panel
+static void print_centered(int16_t y, const char* text)
+{
+    display.setCursor((int16_t)(64 - 6 * strlen(text)) / 2, y);
+    display.print(text);
+}
+
+void enter_notice_mode(matrix_notice_t notice)
+{
+    ESP_LOGI(TAG, "Notice %d shown", (int)notice);
+    _notice_mode = true;
+    _notice_end_ms = millis() + MATRIX_NOTICE_MS;
+
+    // As for a splash: stop the Tetris animation, keep the refresh timer scanning the text below
+    if (animationTimer)
+        timer_set_running(animationTimer, false);
+
+    display.clearDisplay();
+    display.setTextWrap(false);
+    display.setTextSize(1);
+    display.setTextColor(display.color565(0, 96, 255));
+    switch (notice)
+    {
+        case matrix_notice_pairing_open:
+            print_centered(2, "Bluetooth");
+            print_centered(12, "pairing");
+            display.setTextColor(display.color565(255, 144, 0));
+            print_centered(22, "2 min");   // BLE_PAIRING_WINDOW_S
+            break;
+        case matrix_notice_phone_paired:
+            print_centered(6, "New phone");
+            display.setTextColor(display.color565(255, 144, 0));
+            print_centered(18, "paired");
+            break;
+    }
+}
+
+void exit_notice_mode()
+{
+    ESP_LOGI(TAG, "Notice ended");
+    _notice_mode = false;
+
+    // Back to the clock: a clean redraw of the current time, as after a splash run
+    if (animationTimer)
+        timer_set_running(animationTimer, true);
+
+    display.clearDisplay();
+    _force_update = true;
+    _finished_animating = false;
 }
 
 void exit_splash_mode()
