@@ -30,6 +30,9 @@ Schematics and datasheets for the hardware are in [docs/](docs/).
   hourly brightness table stored in flash (see [main/include/brightness_schedule.h](main/include/brightness_schedule.h))
 - Touch pad for manual on/off, independent of the alarms
 - RTC temperature and aging-offset read/write over BLE
+- Up to five paired phones, listed in the app with their Bluetooth names and MAC addresses; the
+  current phone is marked and another one can be forgotten. Names are kept in NVS next to the bond
+  store ([main/bonds.cpp](main/bonds.cpp))
 - Optional Wi-Fi (client only, set up from the app, which picks the network from the ones the
   clock hears): every 1..24 hours the clock connects, syncs time by SNTP into the RTC (local time
   from the phone's time zone, daylight saving time included), checks GitHub for a newer firmware

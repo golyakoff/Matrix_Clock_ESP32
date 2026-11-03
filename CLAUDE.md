@@ -49,6 +49,11 @@ only big thing that can still give way (`tools/gen_animation.py --min-flash-mb 1
   next to the UUIDs in `main/include/ble.h` and must stay in sync with the app
   (`TetrisClockBleManager.kt`, `protocol/NetworkCodec.kt` + its unit tests). Never change an
   existing characteristic incompatibly: add a new one (optional for the app).
+- Paired phones (`bonds.cpp`, `ble.cpp`): the list comes from NimBLE's bond store; names come from
+  the app (Command 0x05) and are kept in NVS next to it. `BONDS_MAX` must match
+  `CONFIG_BT_NIMBLE_MAX_BONDS`, and `CONFIG_BT_NIMBLE_MAX_CCCDS` must cover 9 records per phone;
+  `ble.cpp` fails the build otherwise. The list characteristic is encrypted and commands 0x05/0x06
+  need a bonded connection.
 - Flash writes (NVS, OTA, otadata) go through `matrix_pause_timers()`/`matrix_resume_timers()` from
   the main loop; settings changed over BLE are kept in RAM and flushed by `loop()`.
 - The BLE stack can't be called from an ISR (touch pad, RTC 1 Hz): ISRs set flags, `loop()` acts.

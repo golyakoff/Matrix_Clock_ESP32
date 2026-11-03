@@ -3,6 +3,7 @@ idf_component_register(
         main.cpp
         alarm.cpp
         ble.cpp
+        bonds.cpp
         brightness_schedule.cpp
         matrix.cpp
         net_settings.cpp

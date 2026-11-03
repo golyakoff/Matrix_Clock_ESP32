@@ -1,3 +1,12 @@
+Release 2.1.3
+
+- [x] **Paired phones**: a new read-only characteristic (`MC_BONDED_PHONES_CHAR_UUID`, `...E500`) lists the phones the clock remembers: address type, identity MAC, a "this phone" flag and the name each phone sent. Commands `0x05` (name this phone) and `0x06` (forget another phone) reuse the existing command characteristic; both need a bonded, authorized connection, and the clock refuses to forget the current phone. The list is readable over an encrypted link only: MAC addresses are personal data
+- [x] Phone names are kept in NVS next to the bond store and written from `loop()` with the display timers stopped, as every other flash write. Names of phones that are no longer bonded are pruned; a name appears after that phone connects with the app version that sends it
+- [x] The five-phone capacity and the 48 CCCD records already in v2.1.0 are enough for the list: the new characteristic is read-only and adds no CCCD
+- [x] Tests: HIL coverage for the list, the current flag, setting a name, refusing to forget the current/unknown phone, and names surviving a reset
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v2.1.2...v2.1.3
+
 Release 2.1.2
 
 - [x] A clock with a debug build updates over WiFi to the release build of its flash size (`debug_16mb` takes `release_16mb`), as an update over BLE from the phone does; before, it found "no newer version", releases having no debug builds

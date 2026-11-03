@@ -47,6 +47,7 @@ COMMAND = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fb"
 UPDATE_INFO = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fc"
 OTA_STATUS = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fd"
 DEVICE_NAME = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e4fe"  # optional, after v2.0.0
+BONDED_PHONES = "c9f0e1d2-3b4a-5c6d-7e8f-a0b1c2d3e500"
 VERSION = "beb5483e-36e1-4688-b7f5-ea07361b26a0"
 OTA_CONTROL = "beb5483e-36e1-4688-b7f5-ea07361b26a1"
 OTA_DATA = "beb5483e-36e1-4688-b7f5-ea07361b26a2"
@@ -58,6 +59,7 @@ NETWORK = (TIME_ZONE, WIFI_SETTINGS, WIFI_STATUS, WIFI_NETWORKS, COMMAND, UPDATE
 NOTIFYING = (TIME, TIME_STR, SHOW, VERSION, WIFI_STATUS, WIFI_NETWORKS, UPDATE_INFO, OTA_STATUS)
 
 CMD_SYNC_TIME, CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE, CMD_SCAN_WIFI = 1, 2, 3, 4
+CMD_SET_BOND_NAME, CMD_FORGET_BOND = 0x05, 0x06
 
 OTA_START, OTA_END, OTA_ABORT = 1, 2, 3
 
@@ -172,6 +174,18 @@ class OtaStatus:
     total: int
 
 
+@dataclass
+class BondedPhone:
+    type: int
+    address: bytes  # six bytes, least significant first
+    current: bool
+    name: str
+
+    @property
+    def mac(self):
+        return ":".join(f"{b:02X}" for b in reversed(self.address))
+
+
 def parse_wifi_settings(d):
     r = Reader(d)
     mode, period, ssid = r.u8(), r.u8(), r.str8()
@@ -215,6 +229,21 @@ def parse_ota_status(d):
     v = OtaStatus(r.u8(), r.u8(), r.u32(), r.u32())
     r.end()
     return v
+
+
+def parse_bonded_phones(d):
+    """(capacity, [BondedPhone]) from the paired phones characteristic"""
+    r = Reader(d)
+    count, capacity = r.u8(), r.u8()
+    assert count <= capacity <= 64, f"bad paired phones header: {count} of {capacity}"
+    phones = []
+    for _ in range(count):
+        address_type = r.u8()
+        address = r.bytes(6)
+        flags = r.u8()
+        phones.append(BondedPhone(address_type, address, bool(flags & 1), r.str8()))
+    r.end()
+    return capacity, phones
 
 
 def alarm_value(hours, minutes, active):
@@ -505,6 +534,15 @@ class Clock:
 
     def ota_status(self):
         return parse_ota_status(self.read(OTA_STATUS))
+
+    def bonded_phones(self):
+        return parse_bonded_phones(self.read(BONDED_PHONES))
+
+    def set_bond_name(self, name):
+        self.write(COMMAND, bytes([CMD_SET_BOND_NAME]) + str8(name))
+
+    def forget_bond(self, phone):
+        self.write(COMMAND, bytes([CMD_FORGET_BOND, phone.type]) + phone.address)
 
     def command(self, cmd):
         self.write(COMMAND, bytes([cmd]))

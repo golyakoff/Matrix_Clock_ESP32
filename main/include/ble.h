@@ -5,6 +5,7 @@
 #include "time.h"
 #include "wifi.h"
 #include "updater.h"
+#include "bonds.h"
 
 // BLE server name
 #define BLE_SERVER_NAME                     "Tetris Clock"
@@ -13,6 +14,15 @@
 #define BLE_DEVICE_MTU                      515
 #define BLE_OTA_DATA_BUFFER                 (BLE_DEVICE_MTU - 3)
 #define BLE_TASK_STACK_SIZE                 8192 
+
+// Paired phones: the capacity of the bond store (BONDS_MAX) and one name per phone. A bonded phone
+// keeps a CCCD record for every notifying characteristic plus Service Changed: 9 per phone now.
+// sdkconfig.defaults must keep CONFIG_BT_NIMBLE_MAX_BONDS and CONFIG_BT_NIMBLE_MAX_CCCDS in step
+// with these numbers (ble.cpp fails the build otherwise).
+#define MC_MAX_BONDS                        BONDS_MAX
+#define MC_BOND_NAME_MAX                    BOND_NAME_MAX
+#define MC_CCCDS_PER_BOND                   (9U)
+#define MC_BONDED_PHONES_MAX_LEN            (2U + MC_MAX_BONDS * (1U + 6U + 1U + 1U + MC_BOND_NAME_MAX))
 
 // The only service
 #define MC_SERVICE_UUID                     "5DE498A1-E7A6-4F4A-B323-913741895AD0" // Matrix Clock Service
@@ -114,9 +124,15 @@
 
 // Command, write u8: 0x01 = sync time from the internet now, 0x02 = check for a firmware update now
 // (result in Update info), 0x03 = install the firmware update from the internet if a newer one is
-// released (progress in OTA status), 0x04 = scan for WiFi networks (see WiFi networks). 0x01..0x03 need
-// WiFi configured; without it 0x02 reports a failed check and 0x03 an OTA error 8.
+// released (progress in OTA status), 0x04 = scan for WiFi networks (see WiFi networks),
+// 0x05 = name the phone of this connection (str8 UTF-8 name, up to 48 bytes, printable; an empty
+// name removes it), 0x06 = forget another bonded phone (u8 address type, u8[6] identity address).
+// 0x05 and 0x06 need a bonded connection; 0x06 refuses the current phone and an unknown address.
+// 0x01..0x03 need WiFi configured; without it 0x02 reports a failed check and 0x03 an OTA error 8.
 #define MC_COMMAND_CHAR_UUID                "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FB" // O Write
+
+#define MC_CMD_SET_BOND_NAME                (0x05U)
+#define MC_CMD_FORGET_BOND                  (0x06U)
 
 // The last update check from the internet (on every WiFi session and on Command 0x02): u8 state
 // (0 = not checked since boot, 1 = checking, 2 = up to date, 3 = update available, 4 = check failed),
@@ -142,6 +158,15 @@
 // update from the internet then offers whichever of the latest release and the latest beta is
 // higher. Kept in NVS; takes effect on the next check (Command 0x02).
 #define MC_UPDATE_CHANNEL_CHAR_UUID         "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FF" // O Read, Write
+
+// Paired phones (optional, firmware v2.1.3+), read only, needs an encrypted link. The phones the
+// clock remembers, oldest first: u8 count, u8 capacity (5), then per phone:
+//   u8 address type (0 public, 1 random, 2 public identity, 3 random identity),
+//   u8[6] identity address (least significant byte first; print it reversed as AA:BB:CC:DD:EE:FF),
+//   u8 flags (bit 0: the phone of this connection), str8 name (UTF-8, up to 48 bytes, may be empty).
+// The app cannot read its own Bluetooth address: the flag marks the current phone. Pairing itself
+// carries no name; the app sends it with Command 0x05, and the clock keeps it next to the bond.
+#define MC_BONDED_PHONES_CHAR_UUID          "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E500" // O Read (encrypted)
 
 // Firmware update characteristics
 #define MC_VERSION_CHAR_UUID               "BEB5483E-36E1-4688-B7F5-EA07361B26A0" // M Read, Notify

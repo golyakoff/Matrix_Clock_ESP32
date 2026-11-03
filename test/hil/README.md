@@ -64,8 +64,9 @@ after power on or after a 5 s touch of the pad. The tests pair ("Just Works", no
 If the clock does not let the PC in, with `--port` they reset the clock (which opens the window) and
 pair again; without it they stop and ask to open the window (hold the pad for 5 s) and rerun.
 
-The clock keeps 5 bonds, the PC takes one of them. To pair again from scratch:
-`bluetoothctl remove <address>`. The `--pairing` tests do that themselves and leave the PC paired.
+The clock keeps 5 bonds, the PC takes one of them; the paired phones tests use that bond as the
+current phone. To pair again from scratch: `bluetoothctl remove <address>`. The `--pairing` tests do
+that themselves and leave the PC paired.
 
 The log checks of the security tests (pairing rejected, idle connection dropped...) need the debug
 build: release builds log errors only, and the tests then check the behaviour alone.
@@ -98,6 +99,7 @@ brightness, alarms, aging offset, time zone. Exceptions:
 - `test_control.py` - display and RTC settings: round trips and invalid values;
 - `test_time.py` - the clock's time, the date rollovers, the time zone must not shift it;
 - `test_network.py` - time zone, WiFi settings validation, status values, commands with WiFi off;
+- `test_bonds.py` - paired phones: the list, the current flag, names and forgetting;
 - `test_wifi.py` - network scan, time sync, update check and install from the internet (`--wifi`);
 - `test_reboot.py` - persistence over a reset (`--reboot`);
 - `test_ota.py` - firmware upload over BLE and rollback (`--firmware`);

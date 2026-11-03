@@ -24,6 +24,7 @@
 #include "version.h"
 #include "ota.h"
 #include "net_settings.h"
+#include "bonds.h"
 #include "wifi.h"
 #include "updater.h"
 
@@ -99,6 +100,7 @@ void main_brightness_schedule_flush();
 void main_firmware_confirm();
 void main_network_init();
 void main_net_settings_flush();
+void main_bonds_flush();
 void main_net_time_apply();
 
 void ota_progress_callback(size_t received, size_t total);
@@ -119,6 +121,8 @@ void main_clock_init() {
     main_rtc_init();
     if (!net_settings_init())
         ESP_LOGE(TAG, "Error: net_settings_init(). The network settings are defaults until reboot.");
+    if (!bonds_init())
+        ESP_LOGE(TAG, "Error: bonds_init(). Paired phone names are not kept until reboot.");
     main_ble_init();
     delay(500);
     main_brightness_schedule_init();
@@ -164,6 +168,7 @@ void loop()
 
         main_brightness_schedule_flush();
         main_net_settings_flush();
+        main_bonds_flush();
         main_net_time_apply();
 
         if (!_firmware_confirmed && now >= FIRMWARE_CONFIRM_DELAY_MS)
@@ -715,6 +720,21 @@ void main_net_settings_flush()
 
     if (!saved)
         ESP_LOGE(TAG, "Error: main_net_settings_flush() > net_settings_flush()");
+}
+
+// Writes the paired phone names received over BLE into NVS, if there are pending ones (see
+// main_brightness_schedule_flush() about the display timers).
+void main_bonds_flush()
+{
+    if (!bonds_is_dirty())
+        return;
+
+    matrix_pause_timers();
+    bool saved = bonds_flush();
+    matrix_resume_timers();
+
+    if (!saved)
+        ESP_LOGE(TAG, "Error: main_bonds_flush() > bonds_flush()");
 }
 
 // SNTP has set the system time (UTC, local via TZ): copy it into the RTC and the matrix exactly when

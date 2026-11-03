@@ -7,7 +7,18 @@
 
 #include "time_helper.h"
 #include "ble.h"
+#include "bonds.h"
 #include "net_settings.h"
+
+// A bonded phone keeps a CCCD record for every notifying characteristic (8 here) plus Service
+// Changed: 9 per phone. If CONFIG_BT_NIMBLE_MAX_CCCDS is too small, NimBLE unpairs an older phone to
+// make room for the new notifications - the exact bug fixed in FireLamp 0.11.0.
+static_assert(MC_MAX_BONDS == CONFIG_BT_NIMBLE_MAX_BONDS,
+              "MC_MAX_BONDS and CONFIG_BT_NIMBLE_MAX_BONDS must match");
+static_assert(CONFIG_BT_NIMBLE_MAX_CCCDS >= MC_MAX_BONDS * MC_CCCDS_PER_BOND,
+              "CONFIG_BT_NIMBLE_MAX_CCCDS is too small: a new phone would unpair a bonded one");
+static_assert(MC_BONDED_PHONES_MAX_LEN <= 512,
+              "The paired phones value must fit in one ATT attribute");
 
 #define BLE_ALARM_TOTAL_MINUTES_MASK   0b0000011111111111
 #define BLE_ALARM_IS_ACTIVE_MASK       0b0000100000000000
@@ -59,6 +70,7 @@ static NimBLECharacteristic* _mcui_char = nullptr;
 static NimBLECharacteristic* _mcos_char = nullptr;
 static NimBLECharacteristic* _mcdn_char = nullptr;
 static NimBLECharacteristic* _mcuc_char = nullptr;
+static NimBLECharacteristic* _mcbond_char = nullptr;
 
 // Variables
 static bool _device_connected = false;
@@ -866,6 +878,129 @@ static void set_update_info_value()
     _mcui_char->setValue(value, len);
 }
 
+// The paired phones value (see MC_BONDED_PHONES_CHAR_UUID in ble.h). The list comes from the bond
+// store snapshot kept by load_bonded(); the current flag is this connection's identity address.
+// Names live in bonds.cpp.
+static size_t bonded_phones_value(const NimBLEConnInfo& connInfo, uint8_t* out, size_t max)
+{
+    if (max < 2)
+        return 0;
+
+    int count = (int)_bonded.size();
+    if (count > (int)MC_MAX_BONDS)
+        count = (int)MC_MAX_BONDS;
+
+    NimBLEAddress current;
+    bool have_current = connInfo.isBonded();
+    if (have_current)
+        current = connInfo.getIdAddress();
+
+    size_t len = 2;
+    uint8_t written = 0;
+    bond_id_t ids[MC_MAX_BONDS];
+    for (int i = 0; i < count; i++)
+    {
+        const NimBLEAddress& address = _bonded[i].address;
+        if (address.isNull())
+            continue;
+
+        bond_id_t id;
+        memset(&id, 0, sizeof(id));
+        id.type = address.getType();
+        memcpy(id.addr, address.getVal(), sizeof(id.addr));
+
+        char name[MC_BOND_NAME_MAX + 1] = { 0 };
+        size_t name_len = bonds_get_name(&id, name, sizeof(name));
+        if (name_len > MC_BOND_NAME_MAX)
+            name_len = MC_BOND_NAME_MAX;
+
+        size_t entry_len = 1 + 6 + 1 + 1 + name_len;
+        if (len + entry_len > max)
+            break;
+
+        out[len++] = address.getType();
+        memcpy(out + len, address.getVal(), 6);
+        len += 6;
+        out[len++] = (have_current && address == current) ? 1 : 0;
+        out[len++] = (uint8_t)name_len;
+        memcpy(out + len, name, name_len);
+        len += name_len;
+
+        ids[written++] = id;
+    }
+
+    out[0] = written;
+    out[1] = (uint8_t)MC_MAX_BONDS;
+    bonds_prune(ids, written);
+    return len;
+}
+
+// Command 0x05: the name of the phone this connection belongs to. Pairing (SMP) carries no name, so
+// the app sends the Bluetooth name from the phone's settings once it has changed.
+static bool set_current_bond_name(const NimBLEConnInfo& connInfo, const uint8_t* data, size_t len)
+{
+    if (!connInfo.isBonded() || len < 2)
+        return false;
+
+    uint8_t name_len = data[1];
+    if (name_len > MC_BOND_NAME_MAX || len != 2U + name_len)
+        return false;
+
+    char name[MC_BOND_NAME_MAX + 1] = { 0 };
+    if (name_len)
+    {
+        memcpy(name, data + 2, name_len);
+        if (strlen(name) != name_len)
+            return false;
+        for (size_t i = 0; i < name_len; i++)
+            if ((uint8_t)name[i] < 0x20 || name[i] == 0x7f)
+                return false;
+    }
+
+    NimBLEAddress me = connInfo.getIdAddress();
+    bond_id_t id;
+    memset(&id, 0, sizeof(id));
+    id.type = me.getType();
+    memcpy(id.addr, me.getVal(), sizeof(id.addr));
+    return bonds_set_name(&id, name);
+}
+
+// Command 0x06: forget another bonded phone. The current one is refused: dropping it would cut this
+// connection; the user forgets the clock on that phone instead.
+static bool forget_other_bond(const NimBLEConnInfo& connInfo, const uint8_t* data, size_t len)
+{
+    if (!connInfo.isBonded() || len != 8)
+        return false;
+
+    uint8_t type = data[1];
+    if (type > 3)
+        return false;
+
+    ble_addr_t raw = {};
+    raw.type = type;
+    memcpy(raw.val, data + 2, sizeof(raw.val));
+    NimBLEAddress address(raw);
+    if (address.isNull() || address == connInfo.getIdAddress())
+        return false;
+    if (!NimBLEDevice::isBonded(address))
+        return false;
+
+    if (!NimBLEDevice::deleteBond(address))
+    {
+        ESP_LOGW(TAG, "Could not forget the phone %s", address.toString().c_str());
+        return false;
+    }
+
+    bond_id_t id;
+    memset(&id, 0, sizeof(id));
+    id.type = type;
+    memcpy(id.addr, raw.val, sizeof(id.addr));
+    bonds_forget(&id);
+    load_bonded();
+    ESP_LOGI(TAG, "Forgot a paired phone");
+    return true;
+}
+
 class NetworkCharacteristicCallbacks: public IdleTrackingCallbacks {
     void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
         ble_touch();
@@ -899,8 +1034,24 @@ class NetworkCharacteristicCallbacks: public IdleTrackingCallbacks {
 
         if (pCharacteristic == _mccmd_char)
         {
-            if (len >= 1)
-                _network_cb->command(data[0]);
+            if (len == 0)
+                return;
+
+            if (data[0] == MC_CMD_SET_BOND_NAME)
+            {
+                if (!set_current_bond_name(connInfo, data, len))
+                    ESP_LOGW(TAG, "Rejected an invalid phone name (%d bytes)", (int)len);
+                return;
+            }
+
+            if (data[0] == MC_CMD_FORGET_BOND)
+            {
+                if (!forget_other_bond(connInfo, data, len))
+                    ESP_LOGW(TAG, "Rejected forgetting a phone (%d bytes)", (int)len);
+                return;
+            }
+
+            _network_cb->command(data[0]);
             return;
         }
 
@@ -961,6 +1112,15 @@ class NetworkCharacteristicCallbacks: public IdleTrackingCallbacks {
             set_wifi_networks_value(false);
         else if (pCharacteristic == _mcui_char)
             set_update_info_value();
+        else if (pCharacteristic == _mcbond_char)
+        {
+            // Between a rejected pairing and the disconnect the link is encrypted, but not let in
+            if (!_authorized)
+                return;
+            uint8_t value[MC_BONDED_PHONES_MAX_LEN];
+            size_t len = bonded_phones_value(connInfo, value, sizeof(value));
+            pCharacteristic->setValue(value, len);
+        }
     }
 };
 NetworkCharacteristicCallbacks _networkCharacteristicCallbacks;
@@ -1022,6 +1182,13 @@ static void ble_add_network_characteristics(NimBLEService *bleService)
 
     _mcuc_char = bleService->createCharacteristic(MC_UPDATE_CHANNEL_CHAR_UUID, RW, 1);
     _mcuc_char->setCallbacks(&_networkCharacteristicCallbacks);
+
+    // The phone addresses are personal data: only a paired (encrypted) link may read them
+    _mcbond_char = bleService->createCharacteristic(
+        MC_BONDED_PHONES_CHAR_UUID,
+        R,
+        MC_BONDED_PHONES_MAX_LEN);
+    _mcbond_char->setCallbacks(&_networkCharacteristicCallbacks);
 }
 
 void ble_update_wifi_status()
