@@ -34,7 +34,7 @@ Options:
 |--------|---------|
 | `--port PORT` | Serial port of the clock. Its log is checked for crashes and unexpected reboots after every test; needed for `--reboot` and the rollback test |
 | `--clock ADDRESS` | BLE address of the clock; default: the first advertising Matrix Clock |
-| `--reboot` | Also run the tests that reset the clock (settings, time and pairing survive a reset); needs `--port`, the clock has no reboot command |
+| `--reboot` | Also run the tests that reset the clock (settings, time and pairing survive a reset) and the BLE reboot command; needs `--port` |
 | `--wifi` | Also run the WiFi tests: network scan; with WiFi configured in the app also time sync from the internet and the update check |
 | `--internet-update` | With `--wifi`: install the latest release from the internet if it is newer than the clock's firmware |
 | `--firmware FILE` | Also run the BLE upload tests and **install** `FILE` at the end: abort, not an image, a short image, disconnect, rollback (`--port`), then the real update. Use the application image: `build/release_4mb/tetris-clock.bin` or a release `*_fw.bin` |
@@ -101,7 +101,7 @@ brightness, alarms, aging offset, time zone. Exceptions:
 - `test_network.py` - time zone, WiFi settings validation, status values, commands with WiFi off;
 - `test_bonds.py` - paired phones: the list, the current flag, names and forgetting;
 - `test_wifi.py` - network scan, time sync, update check and install from the internet (`--wifi`);
-- `test_reboot.py` - persistence over a reset (`--reboot`);
+- `test_reboot.py` - persistence over a reset and the BLE reboot command (`--reboot`);
 - `test_ota.py` - firmware upload over BLE and rollback (`--firmware`);
 - `test_touch.py` - the touch pad (`--manual`);
 - `test_security.py` - who the clock lets in: the pairing window, unpaired and idle connections (`--pairing`, `--slow`, `--manual`).

@@ -1,4 +1,4 @@
-"""Settings survive a reset (the clock has no reboot command: the reset goes over the serial port).
+"""Settings survive a reset (over the serial port) and the BLE reboot command.
 Needs --reboot and --port."""
 
 import time
@@ -12,6 +12,16 @@ pytestmark = pytest.mark.reboot
 
 SETTINGS = (mc.AUTO_BRIGHTNESS, mc.MANUAL_BRIGHTNESS, mc.COLOR_ORDER, mc.ANIMATION_SPLASH,
             mc.HOURLY_BRIGHTNESS, mc.ON_ALARM, mc.OFF_ALARM, mc.AGING_OFFSET)
+
+
+def test_reboot_command(clock, log, version):
+    """Command 0x07 restarts the clock; the bond and the version survive"""
+    m = log.mark()
+    clock.command(mc.CMD_REBOOT)
+    log.wait_for(log.BOOT, m, timeout=10)
+    clock.reconnect()
+    assert clock.version() == version
+    assert not log.crashes(m)
 
 
 def test_reset_keeps_settings(clock, log, version):

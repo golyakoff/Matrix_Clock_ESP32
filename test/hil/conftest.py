@@ -144,7 +144,7 @@ def keep_show(clock):
 
 
 def reboot(clock, log):
-    """Reset the clock over the serial port (no BLE command for it) and connect again"""
+    """Reset the clock over the serial port and connect again"""
     m = log.mark()
     log.reset()
     log.wait_for(log.BOOT, m, timeout=10)

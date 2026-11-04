@@ -126,13 +126,15 @@
 // (result in Update info), 0x03 = install the firmware update from the internet if a newer one is
 // released (progress in OTA status), 0x04 = scan for WiFi networks (see WiFi networks),
 // 0x05 = name the phone of this connection (str8 UTF-8 name, up to 48 bytes, printable; an empty
-// name removes it), 0x06 = forget another bonded phone (u8 address type, u8[6] identity address).
-// 0x05 and 0x06 need a bonded connection; 0x06 refuses the current phone and an unknown address.
+// name removes it), 0x06 = forget another bonded phone (u8 address type, u8[6] identity address),
+// 0x07 = reboot the clock (the write response goes out first; it restarts in 0.5 s, settings kept).
+// 0x05..0x07 need a bonded connection; 0x06 refuses the current phone and an unknown address.
 // 0x01..0x03 need WiFi configured; without it 0x02 reports a failed check and 0x03 an OTA error 8.
 #define MC_COMMAND_CHAR_UUID                "C9F0E1D2-3B4A-5C6D-7E8F-A0B1C2D3E4FB" // O Write
 
 #define MC_CMD_SET_BOND_NAME                (0x05U)
 #define MC_CMD_FORGET_BOND                  (0x06U)
+#define MC_CMD_REBOOT                       (0x07U)
 
 // The last update check from the internet (on every WiFi session and on Command 0x02): u8 state
 // (0 = not checked since boot, 1 = checking, 2 = up to date, 3 = update available, 4 = check failed),

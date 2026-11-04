@@ -1,3 +1,10 @@
+Release 2.2.0
+
+- [x] **Reboot on request**: Command `0x07` restarts the clock after the write response has gone out (0.5 s), so the app can offer "Reboot clock" without pulling the power. Like the other commands, it needs a bonded, authorized connection; settings, time and bonds are kept
+- [x] Tests: HIL coverage for the reboot command (the clock comes back bonded, with its version and settings)
+
+**Full Changelog**: https://github.com/golyakoff/Matrix_Clock_ESP32/compare/v2.1.3...v2.2.0
+
 Release 2.1.3
 
 - [x] **Paired phones**: a new read-only characteristic (`MC_BONDED_PHONES_CHAR_UUID`, `...E500`) lists the phones the clock remembers: address type, identity MAC, a "this phone" flag and the name each phone sent. Commands `0x05` (name this phone) and `0x06` (forget another phone) reuse the existing command characteristic; both need a bonded, authorized connection, and the clock refuses to forget the current phone. The list is readable over an encrypted link only: MAC addresses are personal data

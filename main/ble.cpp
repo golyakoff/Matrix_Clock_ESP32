@@ -2,6 +2,7 @@
 #include <NimBLEDevice.h>
 #include <string.h>
 #include <esp_log.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <vector>
 
@@ -95,6 +96,7 @@ struct bonded_phone_t
 };
 static std::vector<bonded_phone_t> _bonded;
 static esp_timer_handle_t _auth_timer = nullptr;
+static esp_timer_handle_t _reboot_timer = nullptr;
 
 // Idle connections (BLE_IDLE_TIMEOUT_S). Activity: a read or a write of a characteristic; an app
 // subscribed to a notification is waiting for it, so it is not idle either. Ported from
@@ -243,6 +245,12 @@ static void auth_timer_cb(void*)
         ESP_LOGW(TAG, "Phone did not pair in %d s, disconnecting", BLE_AUTH_TIMEOUT_S);
         _pServer->disconnect(_conn_handle);
     }
+}
+
+// Restart after the command write response has gone out, so the app sees the command accepted
+static void reboot_timer_cb(void*)
+{
+    esp_restart();
 }
 
 // The bond store is full and new keys are coming: making room forgets the oldest phone, allowed only
@@ -1051,6 +1059,18 @@ class NetworkCharacteristicCallbacks: public IdleTrackingCallbacks {
                 return;
             }
 
+            if (data[0] == MC_CMD_REBOOT)
+            {
+                if (len != 1 || _reboot_timer == nullptr)
+                {
+                    ESP_LOGW(TAG, "Rejected a reboot command (%d bytes)", (int)len);
+                    return;
+                }
+                ESP_LOGI(TAG, "Rebooting on request");
+                esp_timer_start_once(_reboot_timer, 500 * 1000);
+                return;
+            }
+
             _network_cb->command(data[0]);
             return;
         }
@@ -1305,6 +1325,14 @@ void ble_init(
     ESP_LOGI(TAG, "%d bonded phone(s)", (int)_bonded.size());
     const esp_timer_create_args_t auth_timer_args = { .callback = auth_timer_cb, .name = "ble_auth" };
     esp_timer_create(&auth_timer_args, &_auth_timer);
+    const esp_timer_create_args_t reboot_timer_args = {
+        .callback = reboot_timer_cb,
+        .arg = nullptr,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "ble_reboot",
+        .skip_unhandled_events = false,
+    };
+    esp_timer_create(&reboot_timer_args, &_reboot_timer);
     ble_open_pairing_window();
     
     // Create the BLE Server
